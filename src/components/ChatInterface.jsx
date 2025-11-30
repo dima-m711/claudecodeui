@@ -4446,6 +4446,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                 />
               );
             })}
+
+            <PermissionInlineDialog />
           </>
         )}
 
@@ -4626,8 +4628,6 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
             )}
           </div>
         </div>
-
-        <PermissionInlineDialog />
 
         <form onSubmit={handleSubmit} className="relative max-w-4xl mx-auto">
           {/* Drag overlay */}
@@ -4810,8 +4810,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     {/* Plan Approval Dialog */}
     <PlanApprovalDialog />
 
-    {/* Permission Queue Indicator */}
-    <PermissionQueueIndicator />
+    {/* Permission Queue Indicator - DISABLED: Using inline PermissionInlineDialog instead */}
+    {/* <PermissionQueueIndicator /> */}
 
     {/* Test buttons for development - Hidden by default, enable via VITE_SHOW_DEBUG_BUTTONS=true in .env */}
     {import.meta.env.VITE_SHOW_DEBUG_BUTTONS === 'true' && (

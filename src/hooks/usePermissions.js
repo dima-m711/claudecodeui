@@ -61,6 +61,7 @@ const usePermissions = () => {
           description: message.description || `Use ${message.toolName || message.tool}`,
           input: message.input,
           timestamp: message.timestamp || Date.now(),
+          sessionId: currentSessionId,
         };
 
         console.log('📥 [Permission] Processing WS request:', request);

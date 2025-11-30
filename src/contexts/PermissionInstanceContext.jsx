@@ -13,15 +13,49 @@ export function PermissionInstanceProvider({ sessionId, children }) {
   const [activeInstanceRequest, setActiveInstanceRequest] = useState(null);
 
   useEffect(() => {
+    console.log('🔍 [PermissionInstance] Filtering requests:', {
+      sessionId,
+      hasActiveRequest: !!globalPermission.activeRequest,
+      activeRequest: globalPermission.activeRequest ? {
+        id: globalPermission.activeRequest.id,
+        tool: globalPermission.activeRequest.tool,
+        sessionId: globalPermission.activeRequest.sessionId
+      } : null,
+      totalPendingRequests: globalPermission.pendingRequests.length,
+      pendingRequests: globalPermission.pendingRequests.map(req => ({
+        id: req.id,
+        tool: req.tool,
+        sessionId: req.sessionId
+      }))
+    });
+
     if (sessionId) {
-      const requests = globalPermission.pendingRequests.filter(
+      // Collect all requests: activeRequest + pendingRequests
+      const allRequests = [];
+
+      if (globalPermission.activeRequest && globalPermission.activeRequest.sessionId === sessionId) {
+        allRequests.push(globalPermission.activeRequest);
+      }
+
+      const matchingPending = globalPermission.pendingRequests.filter(
         req => req.sessionId === sessionId
       );
-      setInstanceRequests(requests);
-      setDialogVisible(requests.length > 0);
-      setActiveInstanceRequest(requests[0] || null);
+      allRequests.push(...matchingPending);
+
+      console.log('✅ [PermissionInstance] Filtered results:', {
+        matchingRequests: allRequests.length,
+        requests: allRequests.map(req => ({
+          id: req.id,
+          tool: req.tool,
+          sessionId: req.sessionId
+        }))
+      });
+
+      setInstanceRequests(allRequests);
+      setDialogVisible(allRequests.length > 0);
+      setActiveInstanceRequest(allRequests[0] || null);
     }
-  }, [sessionId, globalPermission.pendingRequests]);
+  }, [sessionId, globalPermission.pendingRequests, globalPermission.activeRequest]);
 
   const handleInstanceDecision = useCallback(async (requestId, decision, updatedInput = null) => {
     console.log('👤 [PermissionInstance] User decision:', { requestId, decision, sessionId });

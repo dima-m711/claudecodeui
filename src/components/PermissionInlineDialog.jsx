@@ -38,6 +38,12 @@ export function PermissionInlineDialog() {
     queueCount
   } = usePermissionInstance();
 
+  console.log('🎭 [PermissionInlineDialog] Render:', {
+    dialogVisible,
+    hasActiveRequest: !!activeInstanceRequest,
+    queueCount
+  });
+
   const [showDetails, setShowDetails] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editedInput, setEditedInput] = useState(null);

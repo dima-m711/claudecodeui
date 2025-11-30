@@ -380,13 +380,13 @@ app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateT
     try {
         const { projectName, sessionId } = req.params;
         const { limit, offset } = req.query;
-        
+
         // Parse limit and offset if provided
         const parsedLimit = limit ? parseInt(limit, 10) : null;
         const parsedOffset = offset ? parseInt(offset, 10) : 0;
-        
+
         const result = await getSessionMessages(projectName, sessionId, parsedLimit, parsedOffset);
-        
+
         // Handle both old and new response formats
         if (Array.isArray(result)) {
             // Backward compatibility: no pagination parameters were provided
@@ -454,32 +454,32 @@ app.post('/api/projects/create', authenticateToken, async (req, res) => {
 });
 
 // Browse filesystem endpoint for project suggestions - uses existing getFileTree
-app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {    
+app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
     try {
         const { path: dirPath } = req.query;
-        
+
         // Default to home directory if no path provided
         const homeDir = os.homedir();
         let targetPath = dirPath ? dirPath.replace('~', homeDir) : homeDir;
-        
+
         // Resolve and normalize the path
         targetPath = path.resolve(targetPath);
-        
+
         // Security check - ensure path is accessible
         try {
             await fs.promises.access(targetPath);
             const stats = await fs.promises.stat(targetPath);
-            
+
             if (!stats.isDirectory()) {
                 return res.status(400).json({ error: 'Path is not a directory' });
             }
         } catch (err) {
             return res.status(404).json({ error: 'Directory not accessible' });
         }
-        
+
         // Use existing getFileTree function with shallow depth (only direct children)
         const fileTree = await getFileTree(targetPath, 1, 0, false); // maxDepth=1, showHidden=false
-        
+
         // Filter only directories and format for suggestions
         const directories = fileTree
             .filter(item => item.type === 'directory')
@@ -489,24 +489,24 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
                 type: 'directory'
             }))
             .slice(0, 20); // Limit results
-            
+
         // Add common directories if browsing home directory
         const suggestions = [];
         if (targetPath === homeDir) {
             const commonDirs = ['Desktop', 'Documents', 'Projects', 'Development', 'Dev', 'Code', 'workspace'];
             const existingCommon = directories.filter(dir => commonDirs.includes(dir.name));
             const otherDirs = directories.filter(dir => !commonDirs.includes(dir.name));
-            
+
             suggestions.push(...existingCommon, ...otherDirs);
         } else {
             suggestions.push(...directories);
         }
-        
-        res.json({ 
+
+        res.json({
             path: targetPath,
-            suggestions: suggestions 
+            suggestions: suggestions
         });
-        
+
     } catch (error) {
         console.error('Error browsing filesystem:', error);
         res.status(500).json({ error: 'Failed to browse filesystem' });
@@ -1601,8 +1601,8 @@ async function startServer() {
         if (!isProduction) {
             console.log(`${c.warn('[WARN]')} Note: Requests will be proxied to Vite dev server at ${c.dim('http://localhost:' + (process.env.VITE_PORT || 5173))}`);
         }
-
         server.listen(PORT, '0.0.0.0', async () => {
+
             const appInstallPath = path.join(__dirname, '..');
 
             // Initialize permission WebSocket handler with the WebSocket server
