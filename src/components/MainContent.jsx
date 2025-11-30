@@ -26,6 +26,7 @@ import PRDEditor from './PRDEditor';
 import Tooltip from './Tooltip';
 import { useTaskMaster } from '../contexts/TaskMasterContext';
 import { useTasksSettings } from '../contexts/TasksSettingsContext';
+import { PermissionInstanceProvider } from '../contexts/PermissionInstanceContext';
 import { api } from '../utils/api';
 
 function MainContent({
@@ -470,30 +471,32 @@ function MainContent({
         <div className={`flex-1 flex flex-col min-h-0 overflow-hidden ${editingFile ? 'mr-0' : ''} ${editorExpanded ? 'hidden' : ''}`}>
           <div className={`h-full ${activeTab === 'chat' ? 'block' : 'hidden'}`}>
             <ErrorBoundary showDetails={true}>
-              <ChatInterface
-              selectedProject={selectedProject}
-              selectedSession={selectedSession}
-              ws={ws}
-              sendMessage={sendMessage}
-              messages={messages}
-              onFileOpen={handleFileOpen}
-              onInputFocusChange={onInputFocusChange}
-              onSessionActive={onSessionActive}
-              onSessionInactive={onSessionInactive}
-              onSessionProcessing={onSessionProcessing}
-              onSessionNotProcessing={onSessionNotProcessing}
-              processingSessions={processingSessions}
-              onReplaceTemporarySession={onReplaceTemporarySession}
-              onNavigateToSession={onNavigateToSession}
-              onShowSettings={onShowSettings}
-              autoExpandTools={autoExpandTools}
-              showRawParameters={showRawParameters}
-              showThinking={showThinking}
-              autoScrollToBottom={autoScrollToBottom}
-              sendByCtrlEnter={sendByCtrlEnter}
-              externalMessageUpdate={externalMessageUpdate}
-              onShowAllTasks={tasksEnabled ? () => setActiveTab('tasks') : null}
-            />
+              <PermissionInstanceProvider sessionId={selectedSession?.id}>
+                <ChatInterface
+                selectedProject={selectedProject}
+                selectedSession={selectedSession}
+                ws={ws}
+                sendMessage={sendMessage}
+                messages={messages}
+                onFileOpen={handleFileOpen}
+                onInputFocusChange={onInputFocusChange}
+                onSessionActive={onSessionActive}
+                onSessionInactive={onSessionInactive}
+                onSessionProcessing={onSessionProcessing}
+                onSessionNotProcessing={onSessionNotProcessing}
+                processingSessions={processingSessions}
+                onReplaceTemporarySession={onReplaceTemporarySession}
+                onNavigateToSession={onNavigateToSession}
+                onShowSettings={onShowSettings}
+                autoExpandTools={autoExpandTools}
+                showRawParameters={showRawParameters}
+                showThinking={showThinking}
+                autoScrollToBottom={autoScrollToBottom}
+                sendByCtrlEnter={sendByCtrlEnter}
+                externalMessageUpdate={externalMessageUpdate}
+                onShowAllTasks={tasksEnabled ? () => setActiveTab('tasks') : null}
+              />
+              </PermissionInstanceProvider>
           </ErrorBoundary>
         </div>
         {activeTab === 'files' && (

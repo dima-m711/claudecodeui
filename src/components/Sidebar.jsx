@@ -14,6 +14,7 @@ import ProjectCreationWizard from './ProjectCreationWizard';
 import { api } from '../utils/api';
 import { useTaskMaster } from '../contexts/TaskMasterContext';
 import { useTasksSettings } from '../contexts/TasksSettingsContext';
+import { usePermission } from '../contexts/PermissionContext';
 
 // Move formatTimeAgo outside component to avoid recreation on every render
 const formatTimeAgo = (dateString, currentTime) => {
@@ -80,6 +81,9 @@ function Sidebar({
   // TaskMaster context
   const { setCurrentProject, mcpServerStatus } = useTaskMaster();
   const { tasksEnabled } = useTasksSettings();
+
+  // Permission context for badge counts
+  const { pendingRequests } = usePermission();
 
   
   // Starred projects state - persisted in localStorage
@@ -226,6 +230,12 @@ function Sidebar({
     // Sort by most recent activity/date
     const normalizeDate = (s) => new Date(s.__provider === 'cursor' ? s.createdAt : s.lastActivity);
     return [...claudeSessions, ...cursorSessions].sort((a, b) => normalizeDate(b) - normalizeDate(a));
+  };
+
+  // Helper function to get pending permission count for a session
+  const getPendingPermissionCount = (sessionId) => {
+    if (!sessionId || !pendingRequests) return 0;
+    return pendingRequests.filter(req => req.sessionId === sessionId).length;
   };
 
   // Helper function to get the last activity date for a project
@@ -1075,6 +1085,11 @@ function Sidebar({
                                           {messageCount}
                                         </Badge>
                                       )}
+                                      {getPendingPermissionCount(session.id) > 0 && (
+                                        <Badge variant="default" className="text-xs px-1.5 py-0 ml-1 bg-amber-500 text-white">
+                                          {getPendingPermissionCount(session.id)}
+                                        </Badge>
+                                      )}
                                   {/* Provider tiny icon */}
                                   <span className="ml-1 opacity-70">
                                     {isCursorSession ? (
@@ -1131,6 +1146,11 @@ function Sidebar({
                                       {messageCount > 0 && (
                                         <Badge variant="secondary" className="text-xs px-1 py-0 ml-auto">
                                           {messageCount}
+                                        </Badge>
+                                      )}
+                                      {getPendingPermissionCount(session.id) > 0 && (
+                                        <Badge variant="default" className="text-xs px-1.5 py-0 ml-1 bg-amber-500 text-white">
+                                          {getPendingPermissionCount(session.id)}
                                         </Badge>
                                       )}
                                       {/* Provider tiny icon */}

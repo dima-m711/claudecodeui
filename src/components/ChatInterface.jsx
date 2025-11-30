@@ -27,7 +27,7 @@ import ClaudeLogo from './ClaudeLogo.jsx';
 import CursorLogo from './CursorLogo.jsx';
 import NextTaskBanner from './NextTaskBanner.jsx';
 import { useTasksSettings } from '../contexts/TasksSettingsContext';
-import PermissionDialog from './PermissionDialog';
+import { PermissionInlineDialog } from './PermissionInlineDialog';
 import PermissionQueueIndicator from './PermissionQueueIndicator';
 import PlanApprovalDialog from './PlanApprovalDialog';
 import { usePermission } from '../contexts/PermissionContext';
@@ -4627,6 +4627,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           </div>
         </div>
 
+        <PermissionInlineDialog />
+
         <form onSubmit={handleSubmit} className="relative max-w-4xl mx-auto">
           {/* Drag overlay */}
           {isDragActive && (
@@ -4804,15 +4806,6 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
         </form>
       </div>
     </div>
-
-    {/* Permission Dialog */}
-    {isDialogOpen && currentRequest && (
-      <PermissionDialog
-        request={currentRequest}
-        onClose={closeDialog}
-        onDecision={handleDialogDecision}
-      />
-    )}
 
     {/* Plan Approval Dialog */}
     <PlanApprovalDialog />
