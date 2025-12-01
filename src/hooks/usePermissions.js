@@ -9,7 +9,7 @@ import { savePendingRequest, removePendingRequest } from '../utils/permissionSto
  * Integrates WebSocket messaging with the permission UI system
  */
 const usePermissions = () => {
-  const { enqueueRequest, handleDecision, activeRequest, pendingRequests, currentSessionId, isRestoring } = usePermission();
+  const { enqueueRequest, handleDecision, activeRequest, pendingRequests, currentSessionId } = usePermission();
   const { wsClient, isConnected } = useWebSocketContext();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [currentRequest, setCurrentRequest] = useState(null);
@@ -50,6 +50,7 @@ const usePermissions = () => {
         type: message.type,
         requestId: message.requestId || message.id,
         toolName: message.toolName || message.tool,
+        sessionId: message.sessionId,
         timestamp: message.timestamp ? new Date(message.timestamp).toISOString() : 'now'
       });
 
@@ -110,39 +111,9 @@ const usePermissions = () => {
           count: message.pendingRequests?.length || 0
         });
 
-        // Get server's request IDs (source of truth)
-        const serverRequestIds = new Set(
-          (message.pendingRequests || []).map(req => req.requestId)
-        );
+        // No need to clean stale requests - we didn't restore any!
+        // Just load what server has
 
-        // Get client's request IDs (from restored state)
-        const clientRequestIds = new Set();
-        if (activeRequest) {
-          clientRequestIds.add(activeRequest.id);
-        }
-        pendingRequests.forEach(req => {
-          clientRequestIds.add(req.id);
-        });
-
-        // Find stale requests (client has but server doesn't)
-        const staleRequestIds = Array.from(clientRequestIds).filter(
-          id => !serverRequestIds.has(id)
-        );
-
-        // Remove stale requests from both UI state and sessionStorage
-        if (staleRequestIds.length > 0) {
-          console.log('🗑️ [Permission] Cleaning stale requests (server doesn\'t have them):', staleRequestIds);
-          staleRequestIds.forEach(id => {
-            // Remove from UI state
-            handleDecision(id, PERMISSION_DECISIONS.DENY);
-            // Remove from sessionStorage
-            if (currentSessionId) {
-              removePendingRequest(currentSessionId, id);
-            }
-          });
-        }
-
-        // Merge server-side pending requests with local state
         if (message.pendingRequests && message.pendingRequests.length > 0) {
           message.pendingRequests.forEach(serverRequest => {
             const request = {
@@ -155,12 +126,12 @@ const usePermissions = () => {
               sessionId: currentSessionId,
             };
 
-            // Save to sessionStorage
+            // Save to sessionStorage (for cross-component communication in this session)
             if (currentSessionId) {
               savePendingRequest(currentSessionId, request);
             }
 
-            // Add to queue if not already present
+            // Add to queue
             const result = enqueueRequest(request);
             if (!result.autoApproved && !currentRequest) {
               console.log('🔔 [Permission] Showing dialog for synced request:', request.id);
@@ -168,6 +139,8 @@ const usePermissions = () => {
               setIsDialogOpen(true);
             }
           });
+        } else {
+          console.log('✅ [Permission] No pending requests from server');
         }
       }
     };
@@ -179,7 +152,7 @@ const usePermissions = () => {
     return () => {
       wsClient.removeMessageListener(handlePermissionRequest);
     };
-  }, [wsClient, enqueueRequest, handleDecision, currentRequest, currentSessionId, activeRequest, pendingRequests]);
+  }, [wsClient, enqueueRequest, handleDecision, currentRequest, currentSessionId]);
 
   // Sync currentRequest with activeRequest from context
   // This ensures the dialog shows the next queued request after the current one is handled

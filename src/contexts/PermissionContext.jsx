@@ -1,6 +1,6 @@
 import React, { createContext, useState, useContext, useCallback, useEffect, useRef } from 'react';
 import { PERMISSION_DECISIONS, WS_MESSAGE_TYPES } from '../utils/permissionWebSocketClient';
-import { getPendingRequests, savePendingRequest, removePendingRequest as removeFromStorage, clearAllRequests as clearStorage } from '../utils/permissionStorage';
+import { savePendingRequest, removePendingRequest as removeFromStorage, clearAllRequests as clearStorage } from '../utils/permissionStorage';
 
 const PermissionContext = createContext();
 
@@ -18,7 +18,6 @@ export const PermissionProvider = ({ children, currentSessionId }) => {
   const [permissionHistory, setPermissionHistory] = useState([]);
   const [sessionPermissions, setSessionPermissions] = useState(new Map());
   const [permanentPermissions, setPermanentPermissions] = useState(new Map());
-  const [isRestoring, setIsRestoring] = useState(false);
   const lastSessionIdRef = useRef(null);
 
   // Load permanent permissions from localStorage on mount
@@ -44,7 +43,7 @@ export const PermissionProvider = ({ children, currentSessionId }) => {
     }
   }, [permanentPermissions]);
 
-  // Restore pending requests from sessionStorage when session changes
+  // Clear state when session changes (don't restore from sessionStorage)
   useEffect(() => {
     if (!currentSessionId) {
       if (lastSessionIdRef.current) {
@@ -57,21 +56,11 @@ export const PermissionProvider = ({ children, currentSessionId }) => {
 
     if (currentSessionId !== lastSessionIdRef.current) {
       lastSessionIdRef.current = currentSessionId;
-      setIsRestoring(true);
 
-      const restored = getPendingRequests(currentSessionId);
-      console.log('🔄 [Permission] Restoring requests for session:', currentSessionId, 'found:', restored.length);
-
-      if (restored.length > 0) {
-        const [first, ...rest] = restored;
-        setActiveRequest(first);
-        setPendingRequests(rest);
-      } else {
-        setActiveRequest(null);
-        setPendingRequests([]);
-      }
-
-      setIsRestoring(false);
+      // Don't restore from sessionStorage - wait for server sync
+      console.log('🔄 [Permission] Session changed, clearing state, waiting for sync:', currentSessionId);
+      setActiveRequest(null);
+      setPendingRequests([]);
     }
   }, [currentSessionId]);
 
@@ -270,7 +259,6 @@ export const PermissionProvider = ({ children, currentSessionId }) => {
     sessionPermissions,
     permanentPermissions,
     queueCount,
-    isRestoring,
     currentSessionId,
 
     // Actions

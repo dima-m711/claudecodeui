@@ -27,9 +27,10 @@ const activeSessions = new Map();
  * Maps CLI options to SDK-compatible options format
  * @param {Object} options - CLI options
  * @param {Object} ws - WebSocket connection for permission communication
+ * @param {Object} sessionIdRef - Reference object containing capturedSessionId
  * @returns {Object} SDK-compatible options
  */
-function mapCliOptionsToSDK(options = {}, ws = null) {
+function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
   const { sessionId, cwd, toolsSettings, permissionMode, images } = options;
 
   // Create mutable runtime state for permission mode (can be updated after plan approval)
@@ -183,7 +184,9 @@ function mapCliOptionsToSDK(options = {}, ws = null) {
 
         // Add request to queue and await response
         // Note: permissionManager will emit an event that broadcasts the request
-        const result = await permissionManager.addRequest(requestId, toolName, input, sessionId, abortSignal);
+        const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
+        console.log(`🔐 Permission request ${requestId} using sessionId:`, currentSessionId);
+        const result = await permissionManager.addRequest(requestId, toolName, input, currentSessionId, abortSignal);
 
         console.log(`🔐 Permission ${requestId} resolved: ${result.behavior}`);
         console.log(`✅ [SDK] Returning result to SDK:`, JSON.stringify(result));
@@ -463,9 +466,12 @@ async function queryClaudeSDK(command, options = {}, ws) {
   let tempImagePaths = [];
   let tempDir = null;
 
+  // Create a reference object for sessionId that can be updated
+  const sessionIdRef = { current: capturedSessionId };
+
   try {
-    // Map CLI options to SDK format (pass ws for permission handling)
-    const { sdkOptions, runtimeState } = mapCliOptionsToSDK(options, ws);
+    // Map CLI options to SDK format (pass ws and sessionIdRef for permission handling)
+    const { sdkOptions, runtimeState } = mapCliOptionsToSDK(options, ws, sessionIdRef);
 
     // Load MCP configuration
     const mcpServers = await loadMcpConfig(options.cwd);
@@ -604,6 +610,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       if (message.session_id && !capturedSessionId) {
 
         capturedSessionId = message.session_id;
+        sessionIdRef.current = capturedSessionId; // Update the reference for canUseTool callback
         addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir);
 
         // Set session ID on writer

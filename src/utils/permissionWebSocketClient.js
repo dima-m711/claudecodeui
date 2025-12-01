@@ -11,7 +11,8 @@ export const WS_MESSAGE_TYPES = {
   PERMISSION_TIMEOUT: 'permission-timeout',
   PERMISSION_QUEUE_STATUS: 'permission-queue-status',
   PERMISSION_CANCELLED: 'permission-cancelled',
-  PERMISSION_ERROR: 'permission-error'
+  PERMISSION_ERROR: 'permission-error',
+  PERMISSION_SYNC_RESPONSE: 'permission-sync-response'
 };
 
 export const PERMISSION_DECISIONS = {
@@ -91,6 +92,10 @@ class PermissionWebSocketClient {
 
         case WS_MESSAGE_TYPES.PERMISSION_ERROR:
           this.handlePermissionError(data);
+          break;
+
+        case WS_MESSAGE_TYPES.PERMISSION_SYNC_RESPONSE:
+          this.handleSyncResponse(data);
           break;
 
         default:
@@ -193,6 +198,19 @@ class PermissionWebSocketClient {
     if (this.onError) {
       this.onError(new Error(data.error || 'Permission error'));
     }
+  }
+
+  /**
+   * Handle permission sync response
+   */
+  handleSyncResponse(data) {
+    console.log('🔄 Received permission sync response:', {
+      sessionId: data.sessionId,
+      pendingCount: data.pendingRequests?.length || 0
+    });
+
+    // Notify all listeners (including usePermissions.js)
+    this.notifyListeners(data);
   }
 
   /**
