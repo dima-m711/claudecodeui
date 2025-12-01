@@ -742,6 +742,15 @@ function handleChatConnection(ws) {
                 return;
             }
 
+            // Handle plan approval sync request (after page refresh)
+            if (data.type === 'plan-approval-sync-request') {
+                console.log('🔄 Received plan approval sync request for sessions:', data.sessionIds);
+                const clientId = ws.clientId || `client-${Date.now()}`;
+                const planApprovalManager = getPlanApprovalManager();
+                permissionWebSocketHandler.handlePlanApprovalSyncRequest(clientId, data, planApprovalManager);
+                return;
+            }
+
             // Handle plan approval response messages
             if (data.type === 'plan-approval-response') {
                 console.log('📋 Received plan approval response from client');
@@ -1649,11 +1658,18 @@ async function startServer() {
             // Listen for plan approval responses from WebSocket handler
             permissionWebSocketHandler.on('plan-approval-response', (response) => {
                 console.log('📋 Received plan approval response:', response);
+                let result;
                 if (response.decision === 'approve') {
-                    planApprovalManager.resolvePlanApproval(response.planId, response.permissionMode);
+                    result = planApprovalManager.resolvePlanApproval(response.planId, response.permissionMode);
                 } else {
-                    planApprovalManager.rejectPlanApproval(response.planId, response.reason || 'Plan rejected by user');
+                    result = planApprovalManager.rejectPlanApproval(response.planId, response.reason || 'Plan rejected by user');
                 }
+
+                permissionWebSocketHandler.sendPlanApprovalAck(
+                    response.planId,
+                    result.success,
+                    result.error || null
+                );
             });
 
             console.log('');

@@ -944,11 +944,12 @@ function AppContent() {
   );
 }
 
-// Wrapper to provide WebSocket to PlanApprovalProvider
+// Wrapper to provide WebSocket and sessionId to PlanApprovalProvider
 function PlanApprovalProviderWrapper({ children }) {
   const { ws } = useWebSocketContext();
+  const { sessionId } = useParams();
   return (
-    <PlanApprovalProvider websocket={ws}>
+    <PlanApprovalProvider websocket={ws} currentSessionId={sessionId}>
       {children}
     </PlanApprovalProvider>
   );
