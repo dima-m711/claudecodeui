@@ -51,8 +51,10 @@ export function PlanInstanceProvider({ sessionId, children }) {
       return;
     }
 
-    const permissionMode = decision === 'approve_execute' ? 'auto' : 'manual';
+    const permissionMode = decision === 'approve_execute' ? 'auto' : 'default';
     const wsDecision = decision === 'reject' ? 'reject' : 'approve';
+
+    console.log('📤 [PlanInstance] Sending decision with permissionMode:', permissionMode);
 
     const success = globalPlanApproval.sendDecision(result.planId, wsDecision, permissionMode);
 

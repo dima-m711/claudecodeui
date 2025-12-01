@@ -84,6 +84,7 @@ class PlanApprovalManager extends EventEmitter {
     plan.status = 'approved';
     plan.decision = permissionMode === 'auto' ? 'approve_execute' : 'approve_manual';
     plan.decidedAt = Date.now();
+    plan.permissionMode = permissionMode;
 
     const result = {
       approved: true,
