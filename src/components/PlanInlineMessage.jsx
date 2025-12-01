@@ -40,9 +40,7 @@ export function PlanInlineMessage() {
   const steps = planData.steps || [];
 
   return (
-    <div className="fixed bottom-24 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-2xl px-4">
-      <div className="border-2 border-blue-500 bg-blue-50 dark:bg-blue-900/20 rounded-lg shadow-2xl animate-slide-up">
-        <div className="p-4">
+    <div className="mx-4 mb-4 rounded-lg border-2 border-blue-500 bg-blue-50 dark:bg-blue-900/20 p-4 shadow-lg">
           <div className="flex items-start gap-3 mb-3">
             <div className="flex-shrink-0 w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
               <ClipboardList className="w-5 h-5 text-white" />
@@ -132,8 +130,6 @@ export function PlanInlineMessage() {
               +{pendingCount - 1} more pending approval{pendingCount - 1 > 1 ? 's' : ''}
             </p>
           )}
-        </div>
-      </div>
     </div>
   );
 }
