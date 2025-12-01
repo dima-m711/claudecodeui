@@ -176,12 +176,18 @@ class PermissionWebSocketHandler extends EventEmitter {
 
     const client = this.clients.get(clientId);
     if (client?.ws?.readyState === client.ws.OPEN) {
+      // Add synced requests to client's pending set so they can be responded to
+      formattedRequests.forEach(req => {
+        client.pendingRequests.add(req.requestId);
+      });
+
       const response = {
         type: 'permission-sync-response',
         sessionId,
         pendingRequests: formattedRequests
       };
       console.log(`🔄 [WebSocket] Sending sync response with ${formattedRequests.length} requests`);
+      console.log(`🔄 [WebSocket] Added ${formattedRequests.length} requests to client pendingRequests`);
       client.ws.send(JSON.stringify(response));
     }
   }
