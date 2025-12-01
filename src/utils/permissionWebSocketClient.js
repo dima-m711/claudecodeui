@@ -198,7 +198,7 @@ class PermissionWebSocketClient {
   /**
    * Send a permission response
    */
-  sendResponse(requestId, decision, updatedInput = null) {
+  sendResponse(requestId, decision, updatedInput = null, sessionId = null) {
     const response = {
       type: WS_MESSAGE_TYPES.PERMISSION_RESPONSE,
       requestId,
@@ -206,6 +206,10 @@ class PermissionWebSocketClient {
       updatedInput,
       timestamp: Date.now()
     };
+
+    if (sessionId) {
+      response.sessionId = sessionId;
+    }
 
     console.log('📤 Sending permission response:', response);
 

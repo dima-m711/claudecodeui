@@ -75,7 +75,7 @@ export function PermissionInstanceProvider({ sessionId, children }) {
       });
 
       try {
-        const success = wsClient.sendResponse(result.id, result.decision, result.updatedInput);
+        const success = wsClient.sendResponse(result.id, result.decision, result.updatedInput, sessionId);
 
         if (success) {
           if (sessionId) {
