@@ -1794,13 +1794,12 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     return localStorage.getItem('cursor-model') || 'gpt-5';
   });
   // Load permission mode for the current session
+  // Only restore saved mode - don't reset to default for new sessions
   useEffect(() => {
     if (selectedSession?.id) {
       const savedMode = localStorage.getItem(`permissionMode-${selectedSession.id}`);
       if (savedMode) {
         setPermissionMode(savedMode);
-      } else {
-        setPermissionMode('default');
       }
     }
   }, [selectedSession?.id]);
