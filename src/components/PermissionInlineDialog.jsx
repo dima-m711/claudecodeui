@@ -50,7 +50,8 @@ export function PermissionInlineDialog() {
 
   const handleSubmit = useCallback((decision) => {
     if (!activeInstanceRequest) return;
-    handleInstanceDecision(activeInstanceRequest.id, decision, editedInput);
+    const inputToSend = editedInput ?? activeInstanceRequest.input;
+    handleInstanceDecision(activeInstanceRequest.id, decision, inputToSend);
   }, [activeInstanceRequest, handleInstanceDecision, editedInput]);
 
   const handleParameterEdit = () => {

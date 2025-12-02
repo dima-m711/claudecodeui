@@ -37,7 +37,7 @@ const PermissionDetails = ({ interaction, onResponse, onDismiss }) => {
 
     const response = {
       decision: selectedDecision,
-      updatedInput: null
+      updatedInput: input
     };
 
     onResponse(response);
