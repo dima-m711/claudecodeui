@@ -62,6 +62,7 @@ import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getAct
 import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
 import { getPermissionManager } from './services/permissionManager.js';
 import { getPlanApprovalManager } from './services/planApprovalManager.js';
+import { getInteractionManager } from './services/interactionManager.js';
 import { setupConsoleApproval } from './services/consoleApproval.js';
 import PermissionWebSocketHandler from './services/permissionWebSocketHandler.js';
 import gitRoutes from './routes/git.js';
@@ -747,6 +748,23 @@ function handleChatConnection(ws) {
                 console.log('📋 Received plan approval response from client');
                 const clientId = ws.clientId || `client-${Date.now()}`;
                 permissionWebSocketHandler.handlePlanApprovalResponse(clientId, data);
+                return;
+            }
+
+            // Handle generic interaction response messages
+            if (data.type === 'interaction-response') {
+                console.log('🔄 Received interaction response from client');
+                const clientId = ws.clientId || `client-${Date.now()}`;
+                permissionWebSocketHandler.handleInteractionResponse(clientId, data);
+                return;
+            }
+
+            // Handle generic interaction sync request
+            if (data.type === 'interaction-sync-request') {
+                console.log('🔄 Received interaction sync request for sessions:', data.sessionIds);
+                const clientId = ws.clientId || `client-${Date.now()}`;
+                const interactionManager = getInteractionManager();
+                permissionWebSocketHandler.handleInteractionSyncRequest(clientId, data, interactionManager);
                 return;
             }
 
@@ -1608,47 +1626,47 @@ async function startServer() {
             // Initialize permission WebSocket handler with the WebSocket server
             permissionWebSocketHandler.initialize(wss);
 
-            // Connect permission manager events to WebSocket handler
+            // Get manager instances
+            const interactionManager = getInteractionManager();
             const permissionManager = getPermissionManager();
+            const planApprovalManager = getPlanApprovalManager();
 
+            // Connect InteractionManager to WebSocket handler
+            interactionManager.on('interaction-request', (interaction) => {
+                console.log(`🔄 Broadcasting ${interaction.type} interaction:`, interaction.id);
+                permissionWebSocketHandler.broadcastInteractionRequest(interaction);
+            });
+
+            // Listen for interaction responses from WebSocket handler
+            permissionWebSocketHandler.on('interaction-response', (response) => {
+                console.log('🔄 Received interaction response:', response.interactionId);
+                interactionManager.resolveInteraction(response.interactionId, response.response);
+            });
+
+            // Backward compatibility: Keep legacy permission event handlers
             permissionManager.on('permission-request', (request) => {
-                console.log('🔐 Broadcasting permission request:', request.id);
+                console.log('🔐 [Legacy] Broadcasting permission request:', request.id);
                 permissionWebSocketHandler.broadcastPermissionRequest(request);
             });
 
-            permissionManager.on('permission-timeout', (requestId) => {
-                console.log('⏱️ Broadcasting permission timeout:', requestId);
-                permissionWebSocketHandler.broadcastPermissionTimeout(requestId, 'Unknown');
-            });
-
-            // Listen for permission responses from WebSocket handler
             permissionWebSocketHandler.on('permission-response', (response) => {
-                console.log('📝 Received permission response:', response);
-                console.log('🔍 [Index] Calling permissionManager.resolveRequest...');
+                console.log('📝 [Legacy] Received permission response:', response);
                 const success = permissionManager.resolveRequest(
                     response.requestId,
                     response.decision,
                     response.updatedInput
                 );
-                console.log('🔍 [Index] resolveRequest returned:', success);
+                console.log('🔍 [Legacy] resolveRequest returned:', success);
             });
 
-            // Connect plan approval manager events to WebSocket handler
-            const planApprovalManager = getPlanApprovalManager();
-
+            // Backward compatibility: Keep legacy plan approval event handlers
             planApprovalManager.on('plan-request', (request) => {
-                console.log('📋 Broadcasting plan approval request:', request.planId);
+                console.log('📋 [Legacy] Broadcasting plan approval request:', request.planId);
                 permissionWebSocketHandler.broadcastPlanApprovalRequest(request);
             });
 
-            planApprovalManager.on('plan-timeout', ({ planId }) => {
-                console.log('⏱️  Broadcasting plan approval timeout:', planId);
-                permissionWebSocketHandler.broadcastPlanApprovalTimeout(planId);
-            });
-
-            // Listen for plan approval responses from WebSocket handler
             permissionWebSocketHandler.on('plan-approval-response', (response) => {
-                console.log('📋 Received plan approval response:', response);
+                console.log('📋 [Legacy] Received plan approval response:', response);
                 if (response.decision === 'approve') {
                     planApprovalManager.resolvePlanApproval(response.planId, response.permissionMode);
                 } else {
