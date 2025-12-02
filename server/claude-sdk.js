@@ -19,6 +19,7 @@ import os from 'os';
 import crypto from 'crypto';
 import { getPermissionManager } from './services/permissionManager.js';
 import { getPlanApprovalManager } from './services/planApprovalManager.js';
+import { getAskUserHandler } from './services/askUserHandler.js';
 
 // Session tracking: Map of session IDs to active query instances
 const activeSessions = new Map();
@@ -140,6 +141,24 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
 
       // Generate unique request ID
       const requestId = crypto.randomUUID();
+
+      // Handle AskUserQuestion tool through interaction system
+      if (toolName === 'AskUserQuestion') {
+        console.log('❓ [SDK] AskUserQuestion tool called');
+        try {
+          const askUserHandler = getAskUserHandler();
+          const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
+          const answers = await askUserHandler.askUser(input.questions || [input], currentSessionId);
+          console.log('✅ [SDK] Got user answers:', answers);
+          return {
+            behavior: 'allow',
+            modifiedInput: { ...input, answers }
+          };
+        } catch (error) {
+          console.error('❌ [SDK] AskUserQuestion failed:', error.message);
+          return { behavior: 'deny' };
+        }
+      }
 
       // Check permission mode-specific rules
       if (runtimeState.permissionMode === 'acceptEdits') {
