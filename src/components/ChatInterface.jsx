@@ -1703,7 +1703,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
 
   const {
     pendingInteractions,
-    getInteractionsByType
+    getInteractionsByType,
+    getInteractionById
   } = useInteraction();
 
   const [currentSessionId, setCurrentSessionId] = useState(selectedSession?.id || null);
@@ -1730,6 +1731,17 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     [...planApprovalInteractions, ...askUserInteractions],
     [planApprovalInteractions, askUserInteractions]
   );
+
+  const handleInteractionResponse = useCallback((interactionId, response) => {
+    const interaction = getInteractionById(interactionId);
+    if (interaction?.type === INTERACTION_TYPES.PLAN_APPROVAL && response.permissionMode) {
+      setPermissionMode(response.permissionMode);
+      if (selectedSession?.id) {
+        localStorage.setItem(`permissionMode-${selectedSession.id}`, response.permissionMode);
+      }
+    }
+    return sendInteractionResponse(interactionId, response);
+  }, [sendInteractionResponse, getInteractionById, selectedSession?.id]);
 
   const [input, setInput] = useState(() => {
     if (typeof window !== 'undefined' && selectedProject) {
@@ -4483,7 +4495,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
             {nonPermissionInteractions.length > 0 && (
               <InteractionRenderer
                 interactions={nonPermissionInteractions}
-                onResponse={sendInteractionResponse}
+                onResponse={handleInteractionResponse}
               />
             )}
           </>

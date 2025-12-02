@@ -25,12 +25,12 @@ const PlanApprovalDetails = ({ interaction, onResponse, onDismiss }) => {
     },
     {
       value: 'acceptEdits',
-      label: 'Auto-approve Read',
-      description: 'Automatically approve read-only operations'
+      label: 'Auto-approve Read/Write',
+      description: 'Automatically approve read/write operations'
     },
     {
       value: 'bypassPermissions',
-      label: 'Auto-approve All',
+      label: 'bypass All',
       description: 'Automatically approve all operations for this plan'
     }
   ];

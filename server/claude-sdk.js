@@ -566,7 +566,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
             const exitPlanModeTool = content.find(c => c.type === 'tool_use' && c.name === 'ExitPlanMode');
 
             // 🔍 DEBUG: Log detection result
-            console.log('🔍 [DEBUG] ExitPlanMode detection:', {
+              console.log('🔍 [DEBUG] ExitPlanMode detection:', {
               found: !!exitPlanModeTool,
               toolName: exitPlanModeTool?.name,
               toolId: exitPlanModeTool?.id,
