@@ -1,17 +1,4 @@
 import React, { useState } from 'react';
-import {
-  Box,
-  Typography,
-  Button,
-  Stack,
-  TextField,
-  Paper,
-  RadioGroup,
-  FormControlLabel,
-  Radio,
-  Checkbox,
-  FormGroup
-} from '@mui/material';
 
 const AskUserDetails = ({ interaction, onResponse, onDismiss }) => {
   const { data } = interaction;
@@ -73,6 +60,64 @@ const AskUserDetails = ({ interaction, onResponse, onDismiss }) => {
     });
   };
 
+  const renderOptions = (qOptions, qMultiSelect, index) => {
+    if (qMultiSelect) {
+      return (
+        <div className="space-y-2 mt-2">
+          {qOptions.map((option, optIndex) => (
+            <label
+              key={optIndex}
+              className="flex items-start gap-3 p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+            >
+              <input
+                type="checkbox"
+                checked={(answers[index] || []).includes(option.label)}
+                onChange={(e) => handleMultipleChoice(index, option.label, e.target.checked)}
+                className="mt-0.5 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <div>
+                <span className="text-sm text-gray-900 dark:text-gray-100">{option.label}</span>
+                {option.description && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    {option.description}
+                  </p>
+                )}
+              </div>
+            </label>
+          ))}
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-2 mt-2">
+        {qOptions.map((option, optIndex) => (
+          <label
+            key={optIndex}
+            className="flex items-start gap-3 p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+          >
+            <input
+              type="radio"
+              name={`question-${index}`}
+              value={option.label}
+              checked={answers[index] === option.label}
+              onChange={(e) => handleSingleChoice(index, e.target.value)}
+              className="mt-0.5 w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+            />
+            <div>
+              <span className="text-sm text-gray-900 dark:text-gray-100">{option.label}</span>
+              {option.description && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  {option.description}
+                </p>
+              )}
+            </div>
+          </label>
+        ))}
+      </div>
+    );
+  };
+
   const renderQuestion = (questionItem, index) => {
     if (!questionItem || typeof questionItem !== 'object') {
       return null;
@@ -81,176 +126,74 @@ const AskUserDetails = ({ interaction, onResponse, onDismiss }) => {
     const { question: q, options: qOptions = [], multiSelect: qMultiSelect = false } = questionItem;
 
     return (
-      <Paper key={index} variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Typography variant="body1" gutterBottom fontWeight="bold">
+      <div
+        key={index}
+        className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 mb-3"
+      >
+        <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">
           {q}
-        </Typography>
+        </p>
 
         {qOptions.length > 0 ? (
-          qMultiSelect ? (
-            <FormGroup>
-              {qOptions.map((option, optIndex) => (
-                <FormControlLabel
-                  key={optIndex}
-                  control={
-                    <Checkbox
-                      checked={(answers[index] || []).includes(option.label)}
-                      onChange={(e) => handleMultipleChoice(index, option.label, e.target.checked)}
-                    />
-                  }
-                  label={
-                    <Box>
-                      <Typography variant="body2">{option.label}</Typography>
-                      {option.description && (
-                        <Typography variant="caption" color="text.secondary">
-                          {option.description}
-                        </Typography>
-                      )}
-                    </Box>
-                  }
-                />
-              ))}
-            </FormGroup>
-          ) : (
-            <RadioGroup
-              value={answers[index] || ''}
-              onChange={(e) => handleSingleChoice(index, e.target.value)}
-            >
-              {qOptions.map((option, optIndex) => (
-                <FormControlLabel
-                  key={optIndex}
-                  value={option.label}
-                  control={<Radio />}
-                  label={
-                    <Box>
-                      <Typography variant="body2">{option.label}</Typography>
-                      {option.description && (
-                        <Typography variant="caption" color="text.secondary">
-                          {option.description}
-                        </Typography>
-                      )}
-                    </Box>
-                  }
-                />
-              ))}
-            </RadioGroup>
-          )
+          renderOptions(qOptions, qMultiSelect, index)
         ) : (
-          <TextField
-            fullWidth
-            multiline
+          <textarea
             rows={3}
-            variant="outlined"
             placeholder="Enter your answer..."
             value={answers[index] || ''}
             onChange={(e) => handleTextInput(index, e.target.value)}
-            sx={{ mt: 1 }}
+            className="w-full mt-2 px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:text-gray-100"
           />
         )}
-      </Paper>
+      </div>
     );
   };
 
   return (
-    <Box>
-      <Stack spacing={2}>
-        {questions.length > 0 ? (
-          questions.map((q, index) => renderQuestion(q, index))
-        ) : question ? (
-          <Paper variant="outlined" sx={{ p: 2 }}>
-            <Typography variant="body1" gutterBottom fontWeight="bold">
-              {question}
-            </Typography>
-            {options.length > 0 ? (
-              multiSelect ? (
-                <FormGroup>
-                  {options.map((option, index) => (
-                    <FormControlLabel
-                      key={index}
-                      control={
-                        <Checkbox
-                          checked={(answers[0] || []).includes(option.label)}
-                          onChange={(e) => handleMultipleChoice(0, option.label, e.target.checked)}
-                        />
-                      }
-                      label={
-                        <Box>
-                          <Typography variant="body2">{option.label}</Typography>
-                          {option.description && (
-                            <Typography variant="caption" color="text.secondary">
-                              {option.description}
-                            </Typography>
-                          )}
-                        </Box>
-                      }
-                    />
-                  ))}
-                </FormGroup>
-              ) : (
-                <RadioGroup
-                  value={answers[0] || ''}
-                  onChange={(e) => handleSingleChoice(0, e.target.value)}
-                >
-                  {options.map((option, index) => (
-                    <FormControlLabel
-                      key={index}
-                      value={option.label}
-                      control={<Radio />}
-                      label={
-                        <Box>
-                          <Typography variant="body2">{option.label}</Typography>
-                          {option.description && (
-                            <Typography variant="caption" color="text.secondary">
-                              {option.description}
-                            </Typography>
-                          )}
-                        </Box>
-                      }
-                    />
-                  ))}
-                </RadioGroup>
-              )
-            ) : (
-              <TextField
-                fullWidth
-                multiline
-                rows={3}
-                variant="outlined"
-                placeholder="Enter your answer..."
-                value={answers[0] || ''}
-                onChange={(e) => handleTextInput(0, e.target.value)}
-                sx={{ mt: 1 }}
-              />
-            )}
-          </Paper>
-        ) : (
-          <Typography variant="body2" color="text.secondary">
-            No question provided
-          </Typography>
-        )}
-
-        <Stack direction="row" spacing={2}>
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={handleSubmit}
-            disabled={!canSubmit()}
-            fullWidth
-          >
-            Submit Answer
-          </Button>
-          {onDismiss && (
-            <Button
-              variant="outlined"
-              onClick={onDismiss}
-              fullWidth
-            >
-              Cancel
-            </Button>
+    <div className="space-y-4">
+      {questions.length > 0 ? (
+        questions.map((q, index) => renderQuestion(q, index))
+      ) : question ? (
+        <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">
+            {question}
+          </p>
+          {options.length > 0 ? (
+            renderOptions(options, multiSelect, 0)
+          ) : (
+            <textarea
+              rows={3}
+              placeholder="Enter your answer..."
+              value={answers[0] || ''}
+              onChange={(e) => handleTextInput(0, e.target.value)}
+              className="w-full mt-2 px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:text-gray-100"
+            />
           )}
-        </Stack>
-      </Stack>
-    </Box>
+        </div>
+      ) : (
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          No question provided
+        </p>
+      )}
+
+      <div className="flex gap-3">
+        <button
+          onClick={handleSubmit}
+          disabled={!canSubmit()}
+          className="flex-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed rounded-lg transition-colors"
+        >
+          Submit Answer
+        </button>
+        {onDismiss && (
+          <button
+            onClick={onDismiss}
+            className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+        )}
+      </div>
+    </div>
   );
 };
 

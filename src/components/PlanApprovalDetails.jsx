@@ -1,17 +1,4 @@
 import React, { useState } from 'react';
-import {
-  Box,
-  Typography,
-  Button,
-  Stack,
-  Paper,
-  RadioGroup,
-  FormControlLabel,
-  Radio,
-  FormControl,
-  FormLabel,
-  Divider
-} from '@mui/material';
 import ReactMarkdown from 'react-markdown';
 
 const PlanApprovalDetails = ({ interaction, onResponse, onDismiss }) => {
@@ -30,129 +17,98 @@ const PlanApprovalDetails = ({ interaction, onResponse, onDismiss }) => {
     onDismiss();
   };
 
+  const permissionOptions = [
+    {
+      value: 'default',
+      label: 'Default',
+      description: 'Use current permission settings'
+    },
+    {
+      value: 'acceptEdits',
+      label: 'Auto-approve Read',
+      description: 'Automatically approve read-only operations'
+    },
+    {
+      value: 'bypassPermissions',
+      label: 'Auto-approve All',
+      description: 'Automatically approve all operations for this plan'
+    }
+  ];
+
   return (
-    <Box>
-      <Stack spacing={2}>
-        <Paper
-          variant="outlined"
-          sx={{
-            p: 2,
-            bgcolor: 'background.default',
-            maxHeight: '400px',
-            overflow: 'auto'
-          }}
+    <div className="space-y-4">
+      <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-900 max-h-96 overflow-auto">
+        <h4 className="font-semibold text-sm text-gray-900 dark:text-gray-100 mb-3">
+          Proposed Plan:
+        </h4>
+
+        <div className="prose prose-sm dark:prose-invert max-w-none
+          prose-pre:bg-gray-900 prose-pre:text-gray-100 prose-pre:p-2 prose-pre:rounded prose-pre:overflow-auto prose-pre:text-sm
+          prose-code:bg-gray-900 prose-code:text-gray-100 prose-code:px-1 prose-code:rounded prose-code:text-sm
+          prose-headings:mt-4 prose-headings:mb-2
+          prose-ul:pl-6 prose-ol:pl-6">
+          {typeof planData === 'string' ? (
+            <ReactMarkdown>{planData}</ReactMarkdown>
+          ) : (
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              No plan data available
+            </p>
+          )}
+        </div>
+      </div>
+
+      <hr className="border-gray-200 dark:border-gray-700" />
+
+      <div>
+        <h4 className="font-semibold text-sm text-gray-900 dark:text-gray-100 mb-3">
+          Permission Mode
+        </h4>
+        <div className="space-y-2">
+          {permissionOptions.map((option) => (
+            <label
+              key={option.value}
+              className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors
+                ${permissionMode === option.value
+                  ? 'bg-blue-50 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700'
+                  : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700'
+                }`}
+            >
+              <input
+                type="radio"
+                name="permissionMode"
+                value={option.value}
+                checked={permissionMode === option.value}
+                onChange={(e) => setPermissionMode(e.target.value)}
+                className="mt-0.5 text-blue-600 focus:ring-blue-500"
+              />
+              <div>
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                  {option.label}
+                </span>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  {option.description}
+                </p>
+              </div>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          onClick={handleApprove}
+          className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors"
         >
-          <Typography variant="subtitle2" gutterBottom fontWeight="bold" mb={2}>
-            Proposed Plan:
-          </Typography>
-
-          <Box
-            sx={{
-              '& pre': {
-                bgcolor: 'grey.900',
-                color: 'grey.100',
-                p: 1,
-                borderRadius: 1,
-                overflow: 'auto',
-                fontSize: '0.875rem'
-              },
-              '& code': {
-                bgcolor: 'grey.900',
-                color: 'grey.100',
-                px: 0.5,
-                borderRadius: 0.5,
-                fontSize: '0.875rem'
-              },
-              '& h1, & h2, & h3, & h4, & h5, & h6': {
-                mt: 2,
-                mb: 1
-              },
-              '& ul, & ol': {
-                pl: 3
-              }
-            }}
-          >
-            {typeof planData === 'string' ? (
-              <ReactMarkdown>{planData}</ReactMarkdown>
-            ) : (
-              <Typography variant="body2" color="text.secondary">
-                No plan data available
-              </Typography>
-            )}
-          </Box>
-        </Paper>
-
-        <Divider />
-
-        <FormControl component="fieldset">
-          <FormLabel component="legend">
-            <Typography variant="body2" fontWeight="bold">
-              Permission Mode
-            </Typography>
-          </FormLabel>
-          <RadioGroup
-            value={permissionMode}
-            onChange={(e) => setPermissionMode(e.target.value)}
-          >
-            <FormControlLabel
-              value="default"
-              control={<Radio size="small" />}
-              label={
-                <Box>
-                  <Typography variant="body2">Default</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Use current permission settings
-                  </Typography>
-                </Box>
-              }
-            />
-            <FormControlLabel
-              value="auto-approve-read"
-              control={<Radio size="small" />}
-              label={
-                <Box>
-                  <Typography variant="body2">Auto-approve Read</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Automatically approve read-only operations
-                  </Typography>
-                </Box>
-              }
-            />
-            <FormControlLabel
-              value="auto-approve-all"
-              control={<Radio size="small" />}
-              label={
-                <Box>
-                  <Typography variant="body2">Auto-approve All</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Automatically approve all operations for this plan
-                  </Typography>
-                </Box>
-              }
-            />
-          </RadioGroup>
-        </FormControl>
-
-        <Stack direction="row" spacing={2}>
-          <Button
-            variant="contained"
-            color="success"
-            onClick={handleApprove}
-            fullWidth
-          >
-            Approve Plan
-          </Button>
-          <Button
-            variant="outlined"
-            color="error"
-            onClick={handleReject}
-            fullWidth
-          >
-            Reject Plan
-          </Button>
-        </Stack>
-      </Stack>
-    </Box>
+          Approve Plan
+        </button>
+        <button
+          onClick={handleReject}
+          className="flex-1 px-4 py-2 border border-red-600 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 font-medium rounded-lg transition-colors"
+        >
+          Reject Plan
+        </button>
+      </div>
+    </div>
   );
 };
 

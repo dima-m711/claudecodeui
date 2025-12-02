@@ -1,5 +1,4 @@
 import React from 'react';
-import { Box } from '@mui/material';
 import { INTERACTION_TYPES } from '../contexts/InteractionContext';
 import InteractionInlineMessage from './InteractionInlineMessage';
 import PermissionDetails from './PermissionDetails';
@@ -25,7 +24,7 @@ const InteractionRenderer = ({ interactions, onResponse }) => {
   };
 
   return (
-    <Box sx={{ width: '100%' }}>
+    <div className="w-full">
       {interactions.map((interaction) => (
         <InteractionInlineMessage
           key={interaction.id}
@@ -35,7 +34,7 @@ const InteractionRenderer = ({ interactions, onResponse }) => {
           onDismiss={() => onResponse(interaction.id, { cancelled: true })}
         />
       ))}
-    </Box>
+    </div>
   );
 };
 
