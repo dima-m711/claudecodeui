@@ -8,26 +8,23 @@
 import { EventEmitter } from 'events';
 import {
   PermissionDecision,
-  PERMISSION_TIMEOUT_MS,
-  DEFAULT_QUEUE_CLEANUP_INTERVAL_MS,
-  MAX_QUEUE_SIZE,
   formatPermissionRequest,
-  createSdkPermissionResult
+  createSdkPermissionResult,
+  TOOL_RISK_LEVELS,
+  TOOL_CATEGORIES
 } from './permissionTypes.js';
+import { getInteractionManager } from './interactionManager.js';
+import { InteractionType } from './interactionTypes.js';
 
 /**
  * PermissionManager class
- * Manages the queue of pending permission requests and their responses
+ * Thin adapter over InteractionManager for permission-specific logic
  */
 export class PermissionManager extends EventEmitter {
   constructor() {
     super();
 
-    // Map of request ID to pending permission request
-    this.pendingRequests = new Map();
-
-    // Map of sessionId to Set of request IDs (for session-aware queries)
-    this.requestsBySession = new Map();
+    this.interactionManager = getInteractionManager();
 
     // Session-level permission cache (for allow-session decisions)
     // Map of sessionId -> Map of cacheKey -> { decision, timestamp }
@@ -37,27 +34,25 @@ export class PermissionManager extends EventEmitter {
     this.maxSessionCacheEntries = 1000;
     this.sessionCacheTTL = 60 * 60 * 1000; // 1 hour
 
-    // Statistics for monitoring
-    this.stats = {
-      totalRequests: 0,
-      approvedRequests: 0,
-      deniedRequests: 0,
-      timedOutRequests: 0,
-      abortedRequests: 0
-    };
-
-    // Start periodic cleanup of expired requests and stale sessions
-    this.cleanupInterval = setInterval(() => {
-      this.cleanupExpiredRequests();
-      this.cleanupStaleSessions();
-    }, DEFAULT_QUEUE_CLEANUP_INTERVAL_MS);
-
     // Debug mode flag
     this.debugMode = process.env.DEBUG && process.env.DEBUG.includes('permissions');
 
     if (this.debugMode) {
       console.log('🔐 PermissionManager initialized in debug mode');
     }
+
+    // Forward interaction-request events from InteractionManager
+    this.interactionManager.on('interaction-request', (interaction) => {
+      if (interaction.type === InteractionType.PERMISSION) {
+        const formattedRequest = formatPermissionRequest(
+          interaction.id,
+          interaction.data.toolName,
+          interaction.data.input
+        );
+        formattedRequest.sessionId = interaction.sessionId;
+        this.emit('permission-request', formattedRequest);
+      }
+    });
   }
 
   /**
@@ -70,11 +65,6 @@ export class PermissionManager extends EventEmitter {
    * @returns {Promise<Object>} Promise that resolves with permission result
    */
   async addRequest(id, toolName, input, sessionId = null, abortSignal = null) {
-    // Check queue size limit
-    if (this.pendingRequests.size >= MAX_QUEUE_SIZE) {
-      throw new Error(`Permission queue full (max ${MAX_QUEUE_SIZE} requests)`);
-    }
-
     // Check if this tool/input combination is in session cache
     if (sessionId) {
       const cacheKey = this.getSessionCacheKey(toolName, input);
@@ -83,74 +73,40 @@ export class PermissionManager extends EventEmitter {
         if (this.debugMode) {
           console.log(`🔐 Using cached session permission for ${toolName}: ${cachedDecision} (session: ${sessionId})`);
         }
-        this.stats.approvedRequests++;
         return createSdkPermissionResult(cachedDecision);
       }
     }
 
-    return new Promise((resolve, reject) => {
-      const timestamp = Date.now();
-
-      // Create the request object
-      const request = {
-        id,
-        toolName,
-        input,
+    // Delegate to InteractionManager
+    try {
+      const response = await this.interactionManager.requestInteraction({
+        type: InteractionType.PERMISSION,
         sessionId,
-        timestamp,
-        resolver: resolve,
-        rejector: reject,
-        abortSignal,
-        timeoutId: null
-      };
-
-      // Set up timeout
-      request.timeoutId = setTimeout(() => {
-        console.warn(`⏱️ Permission request ${id} timed out`);
-        this.handleTimeout(id);
-      }, PERMISSION_TIMEOUT_MS);
-
-      // Set up abort signal handler if provided
-      if (abortSignal) {
-        try {
-          if (typeof abortSignal.addEventListener === 'function') {
-            abortSignal.addEventListener('abort', () => {
-              this.handleAbort(id);
-            }, { once: true });
-          } else if (typeof abortSignal.on === 'function') {
-            abortSignal.once('abort', () => {
-              this.handleAbort(id);
-            });
-          } else {
-            console.warn('⚠️ [Permission] abortSignal does not support event listeners');
-          }
-        } catch (error) {
-          console.warn('⚠️ [Permission] Failed to attach abort listener:', error.message);
+        data: {
+          requestId: id,
+          toolName,
+          input,
+          riskLevel: TOOL_RISK_LEVELS?.[toolName] || 'medium',
+          category: TOOL_CATEGORIES?.[toolName] || 'general'
+        },
+        metadata: {
+          abortSignal
         }
+      });
+
+      // Handle session caching
+      if (response.decision === PermissionDecision.ALLOW_SESSION && sessionId) {
+        const cacheKey = this.getSessionCacheKey(toolName, input);
+        this.setSessionPermission(sessionId, cacheKey, response.decision);
       }
 
-      // Add to pending requests
-      this.pendingRequests.set(id, request);
-      this.stats.totalRequests++;
-
-      // Track by session for session-aware queries
-      if (sessionId) {
-        if (!this.requestsBySession.has(sessionId)) {
-          this.requestsBySession.set(sessionId, new Set());
-        }
-        this.requestsBySession.get(sessionId).add(id);
-      }
-
+      return createSdkPermissionResult(response.decision, response.updatedInput);
+    } catch (error) {
       if (this.debugMode) {
-        console.log(`🔐 Added permission request ${id} for tool: ${toolName} (session: ${sessionId || 'none'})`);
-        console.log(`   Input preview: ${JSON.stringify(input).substring(0, 200)}...`);
+        console.error(`❌ [Permission] Request ${id} failed:`, error.message);
       }
-
-      // Emit event for WebSocket layer to handle (include sessionId)
-      const formattedRequest = formatPermissionRequest(id, toolName, input);
-      formattedRequest.sessionId = sessionId;
-      this.emit('permission-request', formattedRequest);
-    });
+      throw error;
+    }
   }
 
   /**
@@ -161,183 +117,26 @@ export class PermissionManager extends EventEmitter {
    * @returns {boolean} True if request was resolved, false if not found
    */
   resolveRequest(requestId, decision, updatedInput = null) {
-    console.log(`🔍 [PermissionManager] resolveRequest called:`, { requestId, decision, hasPendingRequest: this.pendingRequests.has(requestId) });
+    console.log(`🔍 [PermissionManager] resolveRequest called:`, { requestId, decision });
 
-    const request = this.pendingRequests.get(requestId);
+    // Resolve through InteractionManager
+    const result = this.interactionManager.resolveInteraction(requestId, {
+      decision,
+      updatedInput
+    });
 
-    if (!request) {
-      console.warn(`⚠️ Permission request ${requestId} not found in pendingRequests`);
-      console.warn(`   Current pending requests:`, Array.from(this.pendingRequests.keys()));
+    if (!result.success) {
+      console.warn(`⚠️ Permission request ${requestId} could not be resolved`);
       return false;
     }
-
-    console.log(`✅ [PermissionManager] Found request ${requestId}, resolving with ${decision}`);
-
-    // Clear timeout
-    if (request.timeoutId) {
-      clearTimeout(request.timeoutId);
-      console.log(`🔍 [PermissionManager] Cleared timeout for ${requestId}`);
-    }
-
-    // Remove from pending
-    this.pendingRequests.delete(requestId);
-
-    // Remove from session tracking
-    if (request.sessionId && this.requestsBySession.has(request.sessionId)) {
-      this.requestsBySession.get(request.sessionId).delete(requestId);
-      if (this.requestsBySession.get(request.sessionId).size === 0) {
-        this.requestsBySession.delete(request.sessionId);
-      }
-    }
-
-    console.log(`🔍 [PermissionManager] Removed ${requestId} from pending, remaining: ${this.pendingRequests.size}`);
-
-    // Handle session-level caching (properly isolated per session)
-    if (decision === PermissionDecision.ALLOW_SESSION && request.sessionId) {
-      const cacheKey = this.getSessionCacheKey(request.toolName, request.input);
-      this.setSessionPermission(request.sessionId, cacheKey, decision);
-      if (this.debugMode) {
-        console.log(`🔐 Cached session permission for ${request.toolName} (session: ${request.sessionId})`);
-      }
-    }
-
-    // Update statistics
-    if (decision === PermissionDecision.DENY) {
-      this.stats.deniedRequests++;
-    } else {
-      this.stats.approvedRequests++;
-    }
-
-    // Create SDK-compatible result
-    // If user didn't modify input (updatedInput is null), use the original input
-    const result = createSdkPermissionResult(decision, updatedInput ?? request.input,"Denied by user");
-    console.log(`🔍 [PermissionManager] Created SDK result:`, result);
 
     if (this.debugMode) {
       console.log(`🔐 Resolved permission ${requestId}: ${decision}`);
     }
 
-    // Resolve the promise
-    console.log(`🔍 [PermissionManager] Calling resolver for ${requestId}`);
-    try {
-      request.resolver(result);
-      console.log(`✅ [PermissionManager] Resolver called successfully for ${requestId}`);
-    } catch (error) {
-      console.error(`❌ [PermissionManager] Error calling resolver:`, error);
-    }
-
     return true;
   }
 
-  /**
-   * Handles timeout for a permission request
-   * @param {string} requestId - Request ID that timed out
-   * @private
-   */
-  handleTimeout(requestId) {
-    const request = this.pendingRequests.get(requestId);
-
-    if (!request) {
-      return; // Already resolved
-    }
-
-    // Remove from pending
-    this.pendingRequests.delete(requestId);
-    this.stats.timedOutRequests++;
-
-    console.warn(`⏱️ Permission request ${requestId} timed out after ${PERMISSION_TIMEOUT_MS}ms`);
-
-    // Auto-deny on timeout
-    const result = createSdkPermissionResult(PermissionDecision.DENY,null, "Request timed out", false);
-    request.resolver(result);
-
-    // Emit timeout event
-    this.emit('permission-timeout', requestId);
-  }
-
-  /**
-   * Handles abort signal for a permission request
-   * @param {string} requestId - Request ID that was aborted
-   * @private
-   */
-  handleAbort(requestId) {
-    const request = this.pendingRequests.get(requestId);
-
-    if (!request) {
-      return; // Already resolved
-    }
-
-    // Clear timeout
-    if (request.timeoutId) {
-      clearTimeout(request.timeoutId);
-    }
-
-    // Remove from pending
-    this.pendingRequests.delete(requestId);
-    this.stats.abortedRequests++;
-
-    if (this.debugMode) {
-      console.log(`🛑 Permission request ${requestId} aborted`);
-    }
-
-    // Reject with abort error
-    request.rejector(new Error('Permission request aborted'));
-
-    // Emit abort event
-    this.emit('permission-abort', requestId);
-  }
-
-  /**
-   * Cleans up expired permission requests
-   * @private
-   */
-  cleanupExpiredRequests() {
-    const now = Date.now();
-    const expired = [];
-
-    for (const [id, request] of this.pendingRequests) {
-      if (now - request.timestamp > PERMISSION_TIMEOUT_MS * 2) {
-        // Double timeout for cleanup (shouldn't happen normally)
-        expired.push(id);
-      }
-    }
-
-    if (expired.length > 0) {
-      console.warn(`🧹 Cleaning up ${expired.length} expired permission requests`);
-      expired.forEach(id => {
-        this.handleTimeout(id);
-      });
-    }
-  }
-
-  /**
-   * Cleans up stale sessions with no active requests
-   * @private
-   */
-  cleanupStaleSessions() {
-    const staleSessions = [];
-
-    for (const [sessionId, requestIds] of this.requestsBySession) {
-      if (requestIds.size === 0) {
-        staleSessions.push(sessionId);
-      } else {
-        const hasActiveRequests = Array.from(requestIds).some(
-          requestId => this.pendingRequests.has(requestId)
-        );
-        if (!hasActiveRequests) {
-          staleSessions.push(sessionId);
-        }
-      }
-    }
-
-    if (staleSessions.length > 0 && this.debugMode) {
-      console.log(`🧹 Cleaning up ${staleSessions.length} stale sessions`);
-    }
-
-    staleSessions.forEach(sessionId => {
-      this.requestsBySession.delete(sessionId);
-    });
-  }
 
   /**
    * Gets a cache key for session-level permissions
@@ -433,18 +232,7 @@ export class PermissionManager extends EventEmitter {
   removeSession(sessionId) {
     if (!sessionId) return;
 
-    const requestIds = this.requestsBySession.get(sessionId);
-    if (requestIds) {
-      requestIds.forEach(requestId => {
-        const request = this.pendingRequests.get(requestId);
-        if (request && request.timeoutId) {
-          clearTimeout(request.timeoutId);
-        }
-        this.pendingRequests.delete(requestId);
-      });
-      this.requestsBySession.delete(sessionId);
-    }
-
+    this.interactionManager.removeSession(sessionId);
     this.sessionPermissions.delete(sessionId);
 
     if (this.debugMode) {
@@ -457,7 +245,7 @@ export class PermissionManager extends EventEmitter {
    * @returns {number} Number of pending requests
    */
   getPendingCount() {
-    return this.pendingRequests.size;
+    return this.interactionManager.getPendingInteractions([],  InteractionType.PERMISSION).length;
   }
 
   /**
@@ -465,13 +253,19 @@ export class PermissionManager extends EventEmitter {
    * @returns {Array} Array of formatted pending requests
    */
   getPendingRequests() {
-    const requests = [];
-    for (const [id, request] of this.pendingRequests) {
-      const formatted = formatPermissionRequest(id, request.toolName, request.input);
-      formatted.sessionId = request.sessionId;
-      requests.push(formatted);
-    }
-    return requests;
+    const interactions = Array.from(this.interactionManager.pendingInteractions.values())
+      .filter(i => i.type === InteractionType.PERMISSION);
+
+    return interactions.map(interaction => {
+      const formatted = formatPermissionRequest(
+        interaction.id,
+        interaction.data.toolName,
+        interaction.data.input
+      );
+      formatted.sessionId = interaction.sessionId;
+      formatted.timestamp = interaction.requestedAt;
+      return formatted;
+    });
   }
 
   /**
@@ -482,20 +276,21 @@ export class PermissionManager extends EventEmitter {
   getRequestsForSession(sessionId) {
     if (!sessionId) return [];
 
-    const requestIds = this.requestsBySession.get(sessionId);
-    if (!requestIds || requestIds.size === 0) return [];
+    const interactions = this.interactionManager.getPendingInteractions(
+      [sessionId],
+      InteractionType.PERMISSION
+    );
 
-    const requests = [];
-    for (const id of requestIds) {
-      const request = this.pendingRequests.get(id);
-      if (request) {
-        const formatted = formatPermissionRequest(id, request.toolName, request.input);
-        formatted.sessionId = request.sessionId;
-        formatted.timestamp = request.timestamp;
-        requests.push(formatted);
-      }
-    }
-    return requests;
+    return interactions.map(interaction => {
+      const formatted = formatPermissionRequest(
+        interaction.id,
+        interaction.data.toolName,
+        interaction.data.input
+      );
+      formatted.sessionId = interaction.sessionId;
+      formatted.timestamp = interaction.requestedAt;
+      return formatted;
+    });
   }
 
   /**
@@ -503,9 +298,10 @@ export class PermissionManager extends EventEmitter {
    * @returns {Object} Statistics object
    */
   getStats() {
+    const interactionStats = this.interactionManager.getStatistics();
     return {
-      ...this.stats,
-      pendingCount: this.pendingRequests.size,
+      ...interactionStats.permission,
+      pendingCount: this.getPendingCount(),
       sessionCacheSize: this.sessionPermissions.size
     };
   }
@@ -514,24 +310,7 @@ export class PermissionManager extends EventEmitter {
    * Shuts down the permission manager
    */
   shutdown() {
-    // Clear cleanup interval
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
-    }
-
-    // Reject all pending requests
-    for (const [id, request] of this.pendingRequests) {
-      if (request.timeoutId) {
-        clearTimeout(request.timeoutId);
-      }
-      request.rejector(new Error('Permission manager shutting down'));
-    }
-
-    // Clear all data
-    this.pendingRequests.clear();
-    this.requestsBySession.clear();
     this.sessionPermissions.clear();
-
     console.log('🔐 PermissionManager shut down');
   }
 }
