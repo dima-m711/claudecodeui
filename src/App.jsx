@@ -34,6 +34,7 @@ import { TasksSettingsProvider } from './contexts/TasksSettingsContext';
 import { WebSocketProvider, useWebSocketContext } from './contexts/WebSocketContext';
 import { PermissionProvider } from './contexts/PermissionContext';
 import { PlanApprovalProvider } from './contexts/PlanApprovalContext';
+import { InteractionProvider } from './contexts/InteractionContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import { useVersionCheck } from './hooks/useVersionCheck';
 import useLocalStorage from './hooks/useLocalStorage';
@@ -964,23 +965,38 @@ function PermissionProviderWrapper({ children }) {
   );
 }
 
+// Wrapper to provide sessionIds to InteractionProvider
+function InteractionProviderWrapper({ children }) {
+  const { sessionId } = useParams();
+  const sessionIds = sessionId ? [sessionId] : [];
+  return (
+    <InteractionProvider sessionIds={sessionIds}>
+      {children}
+    </InteractionProvider>
+  );
+}
+
 // Inner app with route-aware providers
 function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={
-        <PermissionProviderWrapper>
-          <PlanApprovalProviderWrapper>
-            <AppContent />
-          </PlanApprovalProviderWrapper>
-        </PermissionProviderWrapper>
+        <InteractionProviderWrapper>
+          <PermissionProviderWrapper>
+            <PlanApprovalProviderWrapper>
+              <AppContent />
+            </PlanApprovalProviderWrapper>
+          </PermissionProviderWrapper>
+        </InteractionProviderWrapper>
       } />
       <Route path="/session/:sessionId" element={
-        <PermissionProviderWrapper>
-          <PlanApprovalProviderWrapper>
-            <AppContent />
-          </PlanApprovalProviderWrapper>
-        </PermissionProviderWrapper>
+        <InteractionProviderWrapper>
+          <PermissionProviderWrapper>
+            <PlanApprovalProviderWrapper>
+              <AppContent />
+            </PlanApprovalProviderWrapper>
+          </PermissionProviderWrapper>
+        </InteractionProviderWrapper>
       } />
     </Routes>
   );
