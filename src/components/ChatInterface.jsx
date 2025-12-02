@@ -1706,6 +1706,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     getInteractionsByType
   } = useInteraction();
 
+  const [currentSessionId, setCurrentSessionId] = useState(selectedSession?.id || null);
+
   const sessionIds = useMemo(() => {
     if (currentSessionId) return [currentSessionId];
     if (selectedSession?.id) return [selectedSession.id];
@@ -1743,7 +1745,6 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     return [];
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [currentSessionId, setCurrentSessionId] = useState(selectedSession?.id || null);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [sessionMessages, setSessionMessages] = useState([]);
   const [isLoadingSessionMessages, setIsLoadingSessionMessages] = useState(false);
