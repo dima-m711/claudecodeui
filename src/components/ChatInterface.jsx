@@ -30,7 +30,7 @@ import { useTasksSettings } from '../contexts/TasksSettingsContext';
 import { PermissionInlineDialog } from './PermissionInlineDialog';
 import PermissionQueueIndicator from './PermissionQueueIndicator';
 import PlanApprovalDialog from './PlanApprovalDialog';
-import QuestionDialog from './QuestionDialog';
+import { QuestionInlineDialog } from './QuestionInlineDialog';
 import { usePermission } from '../contexts/PermissionContext';
 import { usePlanApproval } from '../contexts/PlanApprovalContext';
 import { useQuestion } from '../contexts/QuestionContext';
@@ -4451,6 +4451,14 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
             })}
 
             <PermissionInlineDialog />
+
+            {activeQuestion && (
+              <QuestionInlineDialog
+                questionData={activeQuestion}
+                onSubmit={(answers) => handleAnswerSubmit(activeQuestion.questionId, answers)}
+                onTimeout={handleTimeout}
+              />
+            )}
           </>
         )}
 
@@ -4812,15 +4820,6 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
 
     {/* Plan Approval Dialog */}
     <PlanApprovalDialog />
-
-    {/* Question Dialog */}
-    {activeQuestion && (
-      <QuestionDialog
-        questionData={activeQuestion}
-        onSubmit={(answers) => handleAnswerSubmit(activeQuestion.questionId, answers)}
-        onTimeout={handleTimeout}
-      />
-    )}
 
     {/* Permission Queue Indicator - DISABLED: Using inline PermissionInlineDialog instead */}
     {/* <PermissionQueueIndicator /> */}

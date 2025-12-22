@@ -192,7 +192,7 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
 
           return {
             behavior: 'allow',
-            input: {
+            updatedInput: {
               ...input,
               answers
             }
