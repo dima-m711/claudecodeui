@@ -169,7 +169,7 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
         const autoAllowTools = ['Read', 'Write', 'Edit'];
         if (autoAllowTools.includes(toolName)) {
           console.log(`✅ Auto-allowing ${toolName} in acceptEdits mode`);
-          return { behavior: 'allow' };
+          return { behavior: 'allow', updatedInput: input };
         }
       }
 
@@ -187,7 +187,7 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
         ];
         if (!planModeTools.includes(toolName)) {
           console.log(`❌ Denying ${toolName} in plan mode (not in allowed list)`);
-          return { behavior: 'deny' };
+          return { behavior: 'deny', message: `${toolName} not allowed in plan mode` };
         }
       }
 
@@ -201,7 +201,7 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
         // Check if WebSocket is connected
         if (!ws || ws.readyState !== 1) {
           console.warn('⚠️ No WebSocket connection, auto-denying permission');
-          return { behavior: 'deny' };
+          return { behavior: 'deny', message: 'No WebSocket connection available' };
         }
 
         // Add request to queue and await response
@@ -217,7 +217,7 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
       } catch (error) {
         console.error(`❌ Permission request ${requestId} error:`, error.message);
         // On error, deny the permission
-        return { behavior: 'deny' };
+        return { behavior: 'deny', message: error.message || 'Permission request failed' };
       }
     };
   } else {
