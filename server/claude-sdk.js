@@ -53,7 +53,9 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
   }
 
   // Map permission mode
-  if (runtimeState.permissionMode && runtimeState.permissionMode !== 'default') {
+  // Only pass acceptEdits to SDK - plan mode is handled by canUseTool callback
+  // This allows us to dynamically switch out of plan mode after approval
+  if (runtimeState.permissionMode === 'acceptEdits') {
     sdkOptions.permissionMode = runtimeState.permissionMode;
   }
 
@@ -161,6 +163,12 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
       }
 
       // Check permission mode-specific rules
+      // In bypassPermissions mode, auto-allow ALL tools
+      if (runtimeState.permissionMode === 'bypassPermissions') {
+        console.log(`✅ Auto-allowing ${toolName} in bypassPermissions mode`);
+        return { behavior: 'allow' };
+      }
+
       if (runtimeState.permissionMode === 'acceptEdits') {
         // In acceptEdits mode, auto-allow Read, Write, and Edit operations
         const autoAllowTools = ['Read', 'Write', 'Edit'];
@@ -564,7 +572,8 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
             // Detect ExitPlanMode tool usage
             const exitPlanModeTool = content.find(c => c.type === 'tool_use' && c.name === 'ExitPlanMode');
-
+            const askUserQuestionsTool  = content.find(c => c.type === 'tool_use' && c.name === 'AskUserQuestion');
+            console.log("askUserQuestionsTool",askUserQuestionsTool)
             // 🔍 DEBUG: Log detection result
               console.log('🔍 [DEBUG] ExitPlanMode detection:', {
               found: !!exitPlanModeTool,
