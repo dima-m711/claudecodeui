@@ -19,6 +19,7 @@ import os from 'os';
 import crypto from 'crypto';
 import { getPermissionManager } from './services/permissionManager.js';
 import { getPlanApprovalManager } from './services/planApprovalManager.js';
+import { getAskUserHandler } from './services/askUserHandler.js';
 
 // Session tracking: Map of session IDs to active query instances
 const activeSessions = new Map();
@@ -52,7 +53,9 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
   }
 
   // Map permission mode
-  if (runtimeState.permissionMode && runtimeState.permissionMode !== 'default') {
+  // Only pass acceptEdits to SDK - plan mode is handled by canUseTool callback
+  // This allows us to dynamically switch out of plan mode after approval
+  if (runtimeState.permissionMode === 'acceptEdits') {
     sdkOptions.permissionMode = runtimeState.permissionMode;
   }
 
@@ -141,7 +144,31 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
       // Generate unique request ID
       const requestId = crypto.randomUUID();
 
+      // Handle AskUserQuestion tool through interaction system
+      if (toolName === 'AskUserQuestion') {
+        console.log('❓ [SDK] AskUserQuestion tool called');
+        try {
+          const askUserHandler = getAskUserHandler();
+          const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
+          const answers = await askUserHandler.askUser(input.questions || [input], currentSessionId);
+          console.log('✅ [SDK] Got user answers:', answers);
+          return {
+            behavior: 'allow',
+            modifiedInput: { ...input, answers }
+          };
+        } catch (error) {
+          console.error('❌ [SDK] AskUserQuestion failed:', error.message);
+          return { behavior: 'deny' };
+        }
+      }
+
       // Check permission mode-specific rules
+      // In bypassPermissions mode, auto-allow ALL tools
+      if (runtimeState.permissionMode === 'bypassPermissions') {
+        console.log(`✅ Auto-allowing ${toolName} in bypassPermissions mode`);
+        return { behavior: 'allow' };
+      }
+
       if (runtimeState.permissionMode === 'acceptEdits') {
         // In acceptEdits mode, auto-allow Read, Write, and Edit operations
         const autoAllowTools = ['Read', 'Write', 'Edit'];
@@ -545,9 +572,10 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
             // Detect ExitPlanMode tool usage
             const exitPlanModeTool = content.find(c => c.type === 'tool_use' && c.name === 'ExitPlanMode');
-
+            const askUserQuestionsTool  = content.find(c => c.type === 'tool_use' && c.name === 'AskUserQuestion');
+            console.log("askUserQuestionsTool",askUserQuestionsTool)
             // 🔍 DEBUG: Log detection result
-            console.log('🔍 [DEBUG] ExitPlanMode detection:', {
+              console.log('🔍 [DEBUG] ExitPlanMode detection:', {
               found: !!exitPlanModeTool,
               toolName: exitPlanModeTool?.name,
               toolId: exitPlanModeTool?.id,

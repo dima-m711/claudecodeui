@@ -30,10 +30,11 @@ import { useTasksSettings } from '../contexts/TasksSettingsContext';
 import { PermissionInlineDialog } from './PermissionInlineDialog';
 import { PlanInlineMessage } from './PlanInlineMessage';
 import PermissionQueueIndicator from './PermissionQueueIndicator';
-import PlanApprovalDialog from './PlanApprovalDialog';
 import { usePermission } from '../contexts/PermissionContext';
-import { usePlanApproval } from '../contexts/PlanApprovalContext';
 import usePermissions from '../hooks/usePermissions';
+import InteractionRenderer from './InteractionRenderer';
+import { useInteraction, INTERACTION_TYPES } from '../contexts/InteractionContext';
+import useInteractions from '../hooks/useInteractions';
 import { PERMISSION_DECISIONS } from '../utils/permissionWebSocketClient';
 
 import ClaudeStatus from './ClaudeStatus';
@@ -1700,6 +1701,49 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     sendPermissionResponse,
     mockPermissionRequest
   } = usePermissions();
+
+  const {
+    pendingInteractions,
+    getInteractionsByType,
+    getInteractionById
+  } = useInteraction();
+
+  const [currentSessionId, setCurrentSessionId] = useState(selectedSession?.id || null);
+
+  const sessionIds = useMemo(() => {
+    if (currentSessionId) return [currentSessionId];
+    if (selectedSession?.id) return [selectedSession.id];
+    return [];
+  }, [currentSessionId, selectedSession?.id]);
+
+  const { sendInteractionResponse } = useInteractions(ws, sessionIds);
+
+  const planApprovalInteractions = useMemo(() =>
+    getInteractionsByType(INTERACTION_TYPES.PLAN_APPROVAL),
+    [getInteractionsByType, pendingInteractions]
+  );
+
+  const askUserInteractions = useMemo(() =>
+    getInteractionsByType(INTERACTION_TYPES.ASK_USER),
+    [getInteractionsByType, pendingInteractions]
+  );
+
+  const nonPermissionInteractions = useMemo(() =>
+    [...planApprovalInteractions, ...askUserInteractions],
+    [planApprovalInteractions, askUserInteractions]
+  );
+
+  const handleInteractionResponse = useCallback((interactionId, response) => {
+    const interaction = getInteractionById(interactionId);
+    if (interaction?.type === INTERACTION_TYPES.PLAN_APPROVAL && response.permissionMode) {
+      setPermissionMode(response.permissionMode);
+      if (selectedSession?.id) {
+        localStorage.setItem(`permissionMode-${selectedSession.id}`, response.permissionMode);
+      }
+    }
+    return sendInteractionResponse(interactionId, response);
+  }, [sendInteractionResponse, getInteractionById, selectedSession?.id]);
+
   const [input, setInput] = useState(() => {
     if (typeof window !== 'undefined' && selectedProject) {
       return safeLocalStorage.getItem(`draft_input_${selectedProject.name}`) || '';
@@ -1714,7 +1758,6 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     return [];
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [currentSessionId, setCurrentSessionId] = useState(selectedSession?.id || null);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [sessionMessages, setSessionMessages] = useState([]);
   const [isLoadingSessionMessages, setIsLoadingSessionMessages] = useState(false);
@@ -1764,13 +1807,12 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     return localStorage.getItem('cursor-model') || 'gpt-5';
   });
   // Load permission mode for the current session
+  // Only restore saved mode - don't reset to default for new sessions
   useEffect(() => {
     if (selectedSession?.id) {
       const savedMode = localStorage.getItem(`permissionMode-${selectedSession.id}`);
       if (savedMode) {
         setPermissionMode(savedMode);
-      } else {
-        setPermissionMode('default');
       }
     }
   }, [selectedSession?.id]);
@@ -4449,6 +4491,14 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
             })}
 
             <PermissionInlineDialog />
+
+            {/* Render plan approvals and ask-user interactions inline */}
+            {nonPermissionInteractions.length > 0 && (
+              <InteractionRenderer
+                interactions={nonPermissionInteractions}
+                onResponse={handleInteractionResponse}
+              />
+            )}
             <PlanInlineMessage />
           </>
         )}
@@ -4809,8 +4859,6 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
       </div>
     </div>
 
-    {/* Plan Approval Dialog */}
-    <PlanApprovalDialog />
 
     {/* Permission Queue Indicator - DISABLED: Using inline PermissionInlineDialog instead */}
     {/* <PermissionQueueIndicator /> */}

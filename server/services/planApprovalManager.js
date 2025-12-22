@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
-import crypto from 'crypto';
-import { PERMISSION_TIMEOUT_MS } from './permissionTypes.js';
+import { getInteractionManager } from './interactionManager.js';
+import { InteractionType } from './interactionTypes.js';
 
 const PLAN_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -89,7 +89,7 @@ class PlanApprovalManager extends EventEmitter {
     const result = {
       approved: true,
       permissionMode
-    };
+    });
 
     plan.resolve(result);
     this.pendingPlans.delete(planId);
@@ -160,7 +160,8 @@ class PlanApprovalManager extends EventEmitter {
   }
 
   getStatistics() {
-    return { ...this.statistics };
+    const stats = this.interactionManager.getStatistics();
+    return stats['plan-approval'] || { total: 0, resolved: 0, rejected: 0 };
   }
 
   clearPendingPlan() {

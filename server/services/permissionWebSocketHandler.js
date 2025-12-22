@@ -8,6 +8,12 @@ import {
   createPermissionErrorMessage,
   validatePermissionResponse
 } from './permissionTypes.js';
+import {
+  WS_INTERACTION_MESSAGES,
+  createInteractionRequestMessage,
+  createInteractionResponseMessage,
+  validateInteractionResponse
+} from './interactionTypes.js';
 
 class PermissionWebSocketHandler extends EventEmitter {
   constructor() {
@@ -312,6 +318,78 @@ class PermissionWebSocketHandler extends EventEmitter {
     console.log(`⏱️  [WebSocket] Broadcasting plan approval timeout for ${planId}`);
 
     this.broadcastToAll(message);
+  }
+
+  /**
+   * Broadcast a generic interaction request to all connected clients
+   */
+  broadcastInteractionRequest(interaction) {
+    const message = createInteractionRequestMessage(interaction);
+    message.sequenceNumber = ++this.sequenceNumber;
+
+    console.log(`🔄 [WebSocket] Broadcasting ${interaction.type} interaction ${interaction.id}`);
+
+    this.broadcastToAll(message);
+
+    if (this.clients.size === 0) {
+      console.warn('No clients connected to receive interaction request');
+      this.emit('no-clients', interaction);
+    }
+  }
+
+  /**
+   * Handle a generic interaction response from a client
+   */
+  handleInteractionResponse(clientId, message) {
+    try {
+      validateInteractionResponse(message);
+
+      const client = this.clients.get(clientId);
+      if (!client) {
+        console.warn(`Interaction response from unknown client: ${clientId}`);
+        return;
+      }
+
+      console.log(`🔄 [WebSocket] Received interaction response from client ${clientId}:`, {
+        interactionId: message.interactionId,
+        responseKeys: Object.keys(message.response)
+      });
+
+      this.emit('interaction-response', {
+        clientId,
+        interactionId: message.interactionId,
+        response: message.response
+      });
+    } catch (error) {
+      console.error('Invalid interaction response:', error);
+      this.sendError(clientId, message.interactionId, error.message);
+    }
+  }
+
+  /**
+   * Handle a generic interaction sync request from a client
+   */
+  handleInteractionSyncRequest(clientId, message, interactionManager) {
+    const { sessionIds } = message;
+    if (!sessionIds || !Array.isArray(sessionIds)) {
+      console.warn('Interaction sync request missing or invalid sessionIds');
+      return;
+    }
+
+    console.log(`🔄 [WebSocket] Interaction sync request for sessions:`, sessionIds);
+
+    const interactions = interactionManager.getPendingInteractions(sessionIds);
+
+    const client = this.clients.get(clientId);
+    if (client?.ws?.readyState === client.ws.OPEN) {
+      const response = {
+        type: WS_INTERACTION_MESSAGES.INTERACTION_SYNC_RESPONSE,
+        sessionIds,
+        interactions
+      };
+      console.log(`🔄 [WebSocket] Sending sync response with ${interactions.length} interactions`);
+      client.ws.send(JSON.stringify(response));
+    }
   }
 
   /**
