@@ -19,6 +19,7 @@ import os from 'os';
 import crypto from 'crypto';
 import { getPermissionManager } from './services/permissionManager.js';
 import { getPlanApprovalManager } from './services/planApprovalManager.js';
+import { getQuestionManager } from './services/questionManager.js';
 
 // Session tracking: Map of session IDs to active query instances
 const activeSessions = new Map();
@@ -165,6 +166,39 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
         ];
         if (!planModeTools.includes(toolName)) {
           console.log(`❌ Denying ${toolName} in plan mode (not in allowed list)`);
+          return { behavior: 'deny' };
+        }
+      }
+
+      // Handle AskUserQuestion tool
+      if (toolName === 'AskUserQuestion') {
+        console.log('❓ [SDK] AskUserQuestion detected, requesting user input');
+
+        try {
+          if (!ws || ws.readyState !== 1) {
+            console.warn('⚠️ No WebSocket connection, cannot ask questions');
+            return { behavior: 'deny' };
+          }
+
+          const questionManager = getQuestionManager();
+          const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
+
+          const { answers } = await questionManager.requestQuestionAnswers(
+            input.questions || [],
+            currentSessionId
+          );
+
+          console.log('✅ [SDK] Received answers for questions:', answers);
+
+          return {
+            behavior: 'allow',
+            input: {
+              ...input,
+              answers
+            }
+          };
+        } catch (error) {
+          console.error('❌ [SDK] AskUserQuestion error:', error.message);
           return { behavior: 'deny' };
         }
       }

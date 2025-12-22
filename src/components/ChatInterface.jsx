@@ -30,8 +30,10 @@ import { useTasksSettings } from '../contexts/TasksSettingsContext';
 import { PermissionInlineDialog } from './PermissionInlineDialog';
 import PermissionQueueIndicator from './PermissionQueueIndicator';
 import PlanApprovalDialog from './PlanApprovalDialog';
+import QuestionDialog from './QuestionDialog';
 import { usePermission } from '../contexts/PermissionContext';
 import { usePlanApproval } from '../contexts/PlanApprovalContext';
+import { useQuestion } from '../contexts/QuestionContext';
 import usePermissions from '../hooks/usePermissions';
 import { PERMISSION_DECISIONS } from '../utils/permissionWebSocketClient';
 
@@ -1691,6 +1693,7 @@ const ImageAttachment = ({ file, onRemove, uploadProgress, error }) => {
 function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, messages, onFileOpen, onInputFocusChange, onSessionActive, onSessionInactive, onSessionProcessing, onSessionNotProcessing, processingSessions, onReplaceTemporarySession, onNavigateToSession, onShowSettings, autoExpandTools, showRawParameters, showThinking, autoScrollToBottom, sendByCtrlEnter, externalMessageUpdate, onTaskClick, onShowAllTasks }) {
   const { tasksEnabled } = useTasksSettings();
   const { activeRequest } = usePermission();
+  const { activeQuestion, handleAnswerSubmit, handleTimeout } = useQuestion();
   const {
     isDialogOpen,
     currentRequest,
@@ -4809,6 +4812,15 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
 
     {/* Plan Approval Dialog */}
     <PlanApprovalDialog />
+
+    {/* Question Dialog */}
+    {activeQuestion && (
+      <QuestionDialog
+        questionData={activeQuestion}
+        onSubmit={(answers) => handleAnswerSubmit(activeQuestion.questionId, answers)}
+        onTimeout={handleTimeout}
+      />
+    )}
 
     {/* Permission Queue Indicator - DISABLED: Using inline PermissionInlineDialog instead */}
     {/* <PermissionQueueIndicator /> */}

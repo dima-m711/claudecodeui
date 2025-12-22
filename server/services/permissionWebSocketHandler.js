@@ -275,6 +275,61 @@ class PermissionWebSocketHandler extends EventEmitter {
   }
 
   /**
+   * Broadcast a question request to all connected clients
+   */
+  broadcastQuestionRequest(questionRequest) {
+    const message = {
+      type: 'question:request',
+      questionId: questionRequest.questionId,
+      questions: questionRequest.questions,
+      sessionId: questionRequest.sessionId,
+      timestamp: questionRequest.timestamp,
+      expiresAt: questionRequest.expiresAt
+    };
+    message.sequenceNumber = ++this.sequenceNumber;
+
+    console.log(`❓ [WebSocket] Broadcasting question request ${questionRequest.questionId}`);
+
+    this.broadcastToAll(message);
+
+    if (this.clients.size === 0) {
+      console.warn('No clients connected to receive question request');
+      this.emit('no-clients', questionRequest);
+    }
+  }
+
+  /**
+   * Handle a question answer from a client
+   */
+  handleQuestionAnswer(clientId, message) {
+    console.log(`❓ [WebSocket] Received question answer from client ${clientId}:`, {
+      questionId: message.questionId,
+      answers: message.answers
+    });
+
+    this.emit('question-answer', {
+      clientId,
+      questionId: message.questionId,
+      answers: message.answers
+    });
+  }
+
+  /**
+   * Broadcast a question timeout notification
+   */
+  broadcastQuestionTimeout(questionId) {
+    const message = {
+      type: 'question:timeout',
+      questionId,
+      timestamp: Date.now()
+    };
+
+    console.log(`⏱️  [WebSocket] Broadcasting question timeout for ${questionId}`);
+
+    this.broadcastToAll(message);
+  }
+
+  /**
    * Send queue status update to all clients
    */
   sendQueueStatus() {

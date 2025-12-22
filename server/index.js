@@ -750,6 +750,14 @@ function handleChatConnection(ws) {
                 return;
             }
 
+            // Handle question answer messages
+            if (data.type === 'question:answer') {
+                console.log('❓ Received question answer from client');
+                const clientId = ws.clientId || `client-${Date.now()}`;
+                permissionWebSocketHandler.handleQuestionAnswer(clientId, data);
+                return;
+            }
+
             if (data.type === 'claude-command') {
                 console.log('[DEBUG] User message:', data.command || '[Continue/Resume]');
                 console.log('📁 Project:', data.options?.projectPath || 'Unknown');
@@ -1654,6 +1662,26 @@ async function startServer() {
                 } else {
                     planApprovalManager.rejectPlanApproval(response.planId, response.reason || 'Plan rejected by user');
                 }
+            });
+
+            // Connect question manager events to WebSocket handler
+            const { getQuestionManager } = await import('./services/questionManager.js');
+            const questionManager = getQuestionManager();
+
+            questionManager.on('question-request', (request) => {
+                console.log('❓ Broadcasting question request:', request.questionId);
+                permissionWebSocketHandler.broadcastQuestionRequest(request);
+            });
+
+            questionManager.on('question-timeout', ({ questionId }) => {
+                console.log('⏱️  Broadcasting question timeout:', questionId);
+                permissionWebSocketHandler.broadcastQuestionTimeout(questionId);
+            });
+
+            // Listen for question answers from WebSocket handler
+            permissionWebSocketHandler.on('question-answer', (response) => {
+                console.log('❓ Received question answer:', response);
+                questionManager.resolveQuestionAnswers(response.questionId, response.answers);
             });
 
             console.log('');

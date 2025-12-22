@@ -34,6 +34,7 @@ import { TasksSettingsProvider } from './contexts/TasksSettingsContext';
 import { WebSocketProvider, useWebSocketContext } from './contexts/WebSocketContext';
 import { PermissionProvider } from './contexts/PermissionContext';
 import { PlanApprovalProvider } from './contexts/PlanApprovalContext';
+import { QuestionProvider } from './contexts/QuestionContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import { useVersionCheck } from './hooks/useVersionCheck';
 import useLocalStorage from './hooks/useLocalStorage';
@@ -954,6 +955,16 @@ function PlanApprovalProviderWrapper({ children }) {
   );
 }
 
+// Wrapper to provide WebSocket to QuestionProvider
+function QuestionProviderWrapper({ children }) {
+  const { ws } = useWebSocketContext();
+  return (
+    <QuestionProvider websocket={ws}>
+      {children}
+    </QuestionProvider>
+  );
+}
+
 // Wrapper to provide sessionId to PermissionProvider
 function PermissionProviderWrapper({ children }) {
   const { sessionId } = useParams();
@@ -971,14 +982,18 @@ function AppRoutes() {
       <Route path="/" element={
         <PermissionProviderWrapper>
           <PlanApprovalProviderWrapper>
-            <AppContent />
+            <QuestionProviderWrapper>
+              <AppContent />
+            </QuestionProviderWrapper>
           </PlanApprovalProviderWrapper>
         </PermissionProviderWrapper>
       } />
       <Route path="/session/:sessionId" element={
         <PermissionProviderWrapper>
           <PlanApprovalProviderWrapper>
-            <AppContent />
+            <QuestionProviderWrapper>
+              <AppContent />
+            </QuestionProviderWrapper>
           </PlanApprovalProviderWrapper>
         </PermissionProviderWrapper>
       } />
