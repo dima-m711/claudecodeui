@@ -152,11 +152,14 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
           console.log('✅ [SDK] Got user answers:', answers);
           return {
             behavior: 'allow',
-            modifiedInput: { ...input, answers }
+            updatedInput: { ...input, answers }
           };
         } catch (error) {
           console.error('❌ [SDK] AskUserQuestion failed:', error.message);
-          return { behavior: 'deny' };
+          return {
+            behavior: 'deny',
+            message: error.message || 'AskUserQuestion failed'
+          };
         }
       }
 
