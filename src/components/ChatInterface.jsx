@@ -28,6 +28,7 @@ import CursorLogo from './CursorLogo.jsx';
 import NextTaskBanner from './NextTaskBanner.jsx';
 import { useTasksSettings } from '../contexts/TasksSettingsContext';
 import { PermissionInlineDialog } from './PermissionInlineDialog';
+import { PlanInlineMessage } from './PlanInlineMessage';
 import PermissionQueueIndicator from './PermissionQueueIndicator';
 import PlanApprovalDialog from './PlanApprovalDialog';
 import { QuestionInlineDialog } from './QuestionInlineDialog';
@@ -4451,6 +4452,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
             })}
 
             <PermissionInlineDialog />
+            <PlanInlineMessage />
 
             {activeQuestion && (
               <QuestionInlineDialog

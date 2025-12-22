@@ -27,6 +27,7 @@ import Tooltip from './Tooltip';
 import { useTaskMaster } from '../contexts/TaskMasterContext';
 import { useTasksSettings } from '../contexts/TasksSettingsContext';
 import { PermissionInstanceProvider } from '../contexts/PermissionInstanceContext';
+import { PlanInstanceProvider } from '../contexts/PlanInstanceContext';
 import { api } from '../utils/api';
 
 function MainContent({
@@ -471,17 +472,18 @@ function MainContent({
         <div className={`flex-1 flex flex-col min-h-0 overflow-hidden ${editingFile ? 'mr-0' : ''} ${editorExpanded ? 'hidden' : ''}`}>
           <div className={`h-full ${activeTab === 'chat' ? 'block' : 'hidden'}`}>
             <ErrorBoundary showDetails={true}>
-              <PermissionInstanceProvider sessionId={selectedSession?.id}>
-                <ChatInterface
-                selectedProject={selectedProject}
-                selectedSession={selectedSession}
-                ws={ws}
-                sendMessage={sendMessage}
-                messages={messages}
-                onFileOpen={handleFileOpen}
-                onInputFocusChange={onInputFocusChange}
-                onSessionActive={onSessionActive}
-                onSessionInactive={onSessionInactive}
+              <PlanInstanceProvider sessionId={selectedSession?.id}>
+                <PermissionInstanceProvider sessionId={selectedSession?.id}>
+                  <ChatInterface
+                  selectedProject={selectedProject}
+                  selectedSession={selectedSession}
+                  ws={ws}
+                  sendMessage={sendMessage}
+                  messages={messages}
+                  onFileOpen={handleFileOpen}
+                  onInputFocusChange={onInputFocusChange}
+                  onSessionActive={onSessionActive}
+                  onSessionInactive={onSessionInactive}
                 onSessionProcessing={onSessionProcessing}
                 onSessionNotProcessing={onSessionNotProcessing}
                 processingSessions={processingSessions}
@@ -496,7 +498,8 @@ function MainContent({
                 externalMessageUpdate={externalMessageUpdate}
                 onShowAllTasks={tasksEnabled ? () => setActiveTab('tasks') : null}
               />
-              </PermissionInstanceProvider>
+                </PermissionInstanceProvider>
+              </PlanInstanceProvider>
           </ErrorBoundary>
         </div>
         {activeTab === 'files' && (
