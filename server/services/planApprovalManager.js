@@ -89,7 +89,7 @@ class PlanApprovalManager extends EventEmitter {
     const result = {
       approved: true,
       permissionMode
-    });
+    };
 
     plan.resolve(result);
     this.pendingPlans.delete(planId);
