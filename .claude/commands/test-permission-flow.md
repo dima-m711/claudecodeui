@@ -6,204 +6,94 @@ argument-hint: "[optional: project-name]"
 
 # Test Permission Approval Flow
 
-Automated test that validates the permission approval flow in Claude Code UI. This command uses chrome-devtools MCP to interact with the browser and verify the entire permission flow works correctly.
-
-## Prerequisites
-
-Before running this test:
-1. Ensure the Claude Code UI server is running on http://localhost:5173
-2. Ensure chrome-devtools MCP is configured and Chrome is open with DevTools
-3. The test project directory must exist (default: /Users/dima/Documents/2Projects/cc-ui-tests)
+Automated test that reproduces the permission approval flow testing using chrome-devtools MCP. This command:
+1. Opens the Claude Code UI in browser
+2. Creates a new session in the specified project (defaults to todo-cli)
+3. Asks the agent to create a test file
+4. Monitors for permission request
+5. Approves the permission
+6. Verifies the file was created successfully
+7. Reports test results
 
 ## Workflow
 
-### Step 1: Verify Server is Running
+### Step 1: Initialize Test Environment
 
-Use Bash to check the server status:
-```bash
-curl -s -o /dev/null -w "%{http_code}" http://localhost:5173
-```
+Check that the UI server is running and accessible:
+- Verify http://localhost:5173 is accessible
+- Take initial snapshot to confirm UI is loaded
 
-If server returns 200, proceed. If not, start the server:
-```bash
-npm run dev > /tmp/claude-ui-server.log 2>&1 &
-```
+### Step 2: Navigate and Select Project
 
-Wait 5 seconds for startup, then verify again.
+1. Navigate to http://localhost:5173
+2. Take snapshot to identify available projects
+3. Click on the project specified in arguments (default: "todo-cli")
+4. Verify project is selected
 
-### Step 2: List Browser Pages
+### Step 3: Create New Claude Session
 
-Use `mcp__mcpm_chrome-devtools__list_pages` to see available browser pages.
+1. Locate and click the "Claude" provider button to start a new session
+2. Wait for the input field to become focused
+3. Verify session creation was successful
 
-If no suitable page exists, navigate to the UI:
-```
-mcp__mcpm_chrome-devtools__navigate_page with url: "http://localhost:5173"
-```
+### Step 4: Send Test Message
 
-### Step 3: Take Initial Snapshot
+1. Fill the input field with: "create test-file-{timestamp}.md"
+2. Press Enter to send the message
+3. Monitor for Claude's response
 
-Use `mcp__mcpm_chrome-devtools__take_snapshot` to capture the page structure.
+### Step 5: Monitor for Permission Request
 
-Look for:
-- Project list in sidebar (buttons with project names)
-- The target project button (default: "todo-cli")
+1. Wait for permission request UI to appear (look for text "Permission Required" or "Allow" button)
+2. Take snapshot when permission request appears
+3. Record timestamp of permission request appearance
 
-### Step 4: Select Project
+### Step 6: Approve Permission
 
-Find the project button in the snapshot. Look for pattern:
-```
-button "todo-cli 5+• .../2Projects/cc-ui-tests"
-```
+1. Locate the "Allow" button in the permission UI
+2. Click the "Allow" button
+3. Verify permission UI disappears
+4. Wait for agent to complete file creation
 
-Click the project using `mcp__mcpm_chrome-devtools__click` with the element's uid.
+### Step 7: Verify File Creation
 
-### Step 5: Start New Claude Session
+1. Wait for Claude's completion message (look for "I've created" or "created the")
+2. Use Bash to verify the file exists in the project directory
+3. Read the file contents to confirm it was created properly
 
-After project selection, look for:
-```
-button "Claude Claude by Anthropic"
-```
+### Step 8: Generate Test Report
 
-Click this button to start a new Claude session.
-
-### Step 6: Wait for Input Field
-
-Take another snapshot and verify the input field is ready:
-```
-textbox "Type / for commands, @ for files, or ask Claude anything..." focusable focused multiline
-```
-
-### Step 7: Send Test Message
-
-Use `mcp__mcpm_chrome-devtools__fill` to enter the test message:
-```
-create test-permission-TIMESTAMP.md with content "# Test Permission Flow"
-```
-(Replace TIMESTAMP with current epoch time)
-
-Then use `mcp__mcpm_chrome-devtools__press_key` with key "Enter" to send.
-
-### Step 8: Wait for Permission Request
-
-Use `mcp__mcpm_chrome-devtools__wait_for` with:
-- text: "Permission"
-- timeout: 30000 (30 seconds)
-
-### Step 9: Verify Permission UI
-
-Take snapshot and confirm these elements are present:
-```
-StaticText "⚠️ Permission Required"
-button "Allow"
-button "Deny"
-button "Allow Session"
-button "Always Allow"
-```
-
-### Step 10: Approve Permission
-
-Click the "Allow" button using its uid from the snapshot.
-
-### Step 11: Wait for Completion
-
-Use `mcp__mcpm_chrome-devtools__wait_for` with:
-- text: "created the file" OR "I've created"
-- timeout: 60000 (60 seconds to allow for API latency)
-
-### Step 12: Verify File Creation
-
-Use Bash to check the file was created:
-```bash
-cat /Users/dima/Documents/2Projects/cc-ui-tests/test-permission-TIMESTAMP.md
-```
-
-The file should contain: `# Test Permission Flow`
-
-### Step 13: Verify Server Logs
-
-Check the server logs for successful permission resolution:
-```bash
-grep -E "(updatedInput|Returning result)" /tmp/claude-ui-server.log | tail -10
-```
-
-**Critical Verification**: The log should show `updatedInput` with actual content, NOT an empty object `{}`:
-```
-✅ [SDK] Returning result to SDK: {"behavior":"allow","updatedInput":{"file_path":"...","content":"# Test Permission Flow"}}
-```
-
-If you see `"updatedInput":{}` the permission flow is BROKEN.
-
-### Step 14: Generate Test Report
-
-Output a report in this format:
-
-```
-=== Permission Approval Flow Test ===
-Started: [timestamp]
-
-✓ Step 1: Server running (Xs)
-✓ Step 2: Browser page ready (Xs)
-✓ Step 3: Project selected (Xs)
-✓ Step 4: Claude session created (Xs)
-✓ Step 5: Test message sent (Xs)
-✓ Step 6: Permission request appeared (Xs)
-✓ Step 7: Permission approved (Xs)
-✓ Step 8: File created and verified (Xs)
-✓ Step 9: Server logs show correct updatedInput (Xs)
-
-Total duration: Xs
-Status: PASS ✓
-
-File: test-permission-TIMESTAMP.md
-Content: # Test Permission Flow
-Log verification: updatedInput contains file_path and content
-```
+Create a test report with:
+- Test execution timestamp
+- Each step's status (✓ passed / ✗ failed)
+- Time taken for each step
+- Screenshot evidence (saved to /tmp/permission-test-{timestamp}.png)
+- File verification results
+- Overall test result (PASS/FAIL)
 
 ## Success Criteria
 
-- [ ] Server responds with HTTP 200
-- [ ] Browser navigates to UI successfully
-- [ ] Project can be selected from sidebar
-- [ ] Claude session starts without errors
-- [ ] Test message is sent successfully
+- [ ] UI loads successfully at http://localhost:5173
+- [ ] Project can be selected
+- [ ] New Claude session can be created
+- [ ] Message can be sent to agent
 - [ ] Permission request appears within 30 seconds
-- [ ] "Allow" button is clickable
-- [ ] Permission dialog disappears after approval
-- [ ] File is created with correct content
-- [ ] Server logs show `updatedInput` with actual parameters (NOT empty `{}`)
-- [ ] No "Tool Error" messages in the response
+- [ ] Permission can be approved successfully
+- [ ] File is created in the correct location
+- [ ] File contains expected content
+- [ ] No errors logged in browser console
+- [ ] Test completes in under 2 minutes
 
 ## Error Handling
 
 If any step fails:
+1. Take screenshot of current state
+2. Capture browser console logs
+3. Record the error message and step that failed
+4. Generate failure report with diagnostic information
+5. Exit with non-zero status code
 
-1. **Take screenshot**: `mcp__mcpm_chrome-devtools__take_screenshot`
-2. **Capture console**: `mcp__mcpm_chrome-devtools__list_console_messages`
-3. **Check server logs**: `tail -50 /tmp/claude-ui-server.log`
-4. **Report failure** with:
-   - Step that failed
-   - Expected vs actual state
-   - Screenshot path
-   - Relevant log excerpts
-
-## Common Issues
-
-### "Permission" text never appears
-- Check if Claude is responding (look for "Thinking..." or "Processing...")
-- Verify the message was sent (check chat history)
-- Check server logs for errors
-
-### File not created after approval
-- Check server logs for `updatedInput` - if empty `{}`, the fix is not applied
-- Look for "Tool Error" in Claude's response
-- Verify the project directory is writable
-
-### Browser not responding
-- Ensure Chrome DevTools is open and connected
-- Try `mcp__mcpm_chrome-devtools__list_pages` to verify connection
-- Restart Chrome if needed
-
-## Usage
+## Usage Examples
 
 ```bash
 # Test with default project (todo-cli)
@@ -211,4 +101,38 @@ If any step fails:
 
 # Test with specific project
 /test-permission-flow my-project
+
+# Test with verbose output
+/test-permission-flow --verbose
 ```
+
+## Output Format
+
+```
+=== Permission Approval Flow Test ===
+Started: 2024-12-02 10:30:00
+
+✓ Step 1: UI loaded successfully (0.5s)
+✓ Step 2: Project 'todo-cli' selected (1.2s)
+✓ Step 3: Claude session created (0.8s)
+✓ Step 4: Test message sent (0.3s)
+✓ Step 5: Permission request appeared (12.5s)
+✓ Step 6: Permission approved (0.5s)
+✓ Step 7: File verified at /path/to/test-file-20241202.md (2.1s)
+
+Total duration: 17.9s
+Status: PASS ✓
+
+File created: test-file-20241202103000.md
+File size: 13 bytes
+File content: # Test File
+Screenshot: /tmp/permission-test-20241202103000.png
+```
+
+## Notes
+
+- Requires chrome-devtools MCP server to be configured and running
+- Requires Claude Code UI server running on http://localhost:5173
+- Test file will be created with timestamp to avoid conflicts
+- Screenshots are saved to /tmp for debugging
+- Browser console logs are captured for error diagnosis

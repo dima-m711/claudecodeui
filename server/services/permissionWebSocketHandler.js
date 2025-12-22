@@ -266,6 +266,46 @@ class PermissionWebSocketHandler extends EventEmitter {
   }
 
   /**
+   * Handle a plan approval sync request from a client (after page refresh)
+   */
+  handlePlanApprovalSyncRequest(clientId, message, planApprovalManager) {
+    const { sessionIds } = message;
+    if (!sessionIds || !Array.isArray(sessionIds)) {
+      console.warn('Plan approval sync request missing sessionIds');
+      return;
+    }
+
+    console.log(`🔄 [WebSocket] Plan approval sync request for sessions: ${sessionIds.join(', ')}`);
+
+    const approvals = planApprovalManager.getPendingApprovals(sessionIds);
+
+    const client = this.clients.get(clientId);
+    if (client?.ws?.readyState === client.ws.OPEN) {
+      const response = {
+        type: 'plan-approval-sync-response',
+        approvals
+      };
+      console.log(`🔄 [WebSocket] Sending plan approval sync response with ${approvals.length} approvals`);
+      client.ws.send(JSON.stringify(response));
+    }
+  }
+
+  /**
+   * Send plan approval decision acknowledgment to client
+   */
+  sendPlanApprovalAck(planId, success, error = null) {
+    const message = {
+      type: 'plan-approval-decision-ack',
+      planId,
+      success,
+      error,
+      timestamp: Date.now()
+    };
+
+    this.broadcastToAll(message);
+  }
+
+  /**
    * Broadcast a plan approval timeout notification
    */
   broadcastPlanApprovalTimeout(planId) {
