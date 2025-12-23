@@ -130,3 +130,4 @@ dev-debug.log
 tasks.json
 tasks/
 /.claude/settings.local.json
+/.playwright-mcp/
