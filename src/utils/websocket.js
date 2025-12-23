@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import permissionWebSocketClient from './permissionWebSocketClient';
 
 export function useWebSocket() {
@@ -8,6 +8,7 @@ export function useWebSocket() {
   const [pendingPermissions, setPendingPermissions] = useState([]);
   const [permissionQueueStatus, setPermissionQueueStatus] = useState({ pending: 0, processing: 0 });
   const reconnectTimeoutRef = useRef(null);
+  const currentSessionIdRef = useRef(null);  // Track current session for message filtering
 
   useEffect(() => {
     // Set up permission client handlers
@@ -76,11 +77,44 @@ export function useWebSocket() {
         try {
           const data = JSON.parse(event.data);
 
-          // Let permission client handle permission-related messages
-          permissionWebSocketClient.handleMessage(data);
+          // Handle permission/plan/question messages separately (they have their own UI)
+          if (data.type?.startsWith('permission-') ||
+              data.type?.startsWith('plan-approval-') ||
+              data.type?.startsWith('question:')) {
+            permissionWebSocketClient.handleMessage(data);
+            return;  // Don't add to main messages state
+          }
 
-          // Continue to pass all messages to the main messages state
-          setMessages(prev => [...prev, data]);
+          // Define global message types (appear in all sessions, no filtering)
+          const globalMessageTypes = [
+            'session-created',
+            'claude-complete',
+            'claude-error',
+            'token-budget',
+            'plan-execution-start'
+          ];
+
+          const isGlobalMessage = globalMessageTypes.includes(data.type);
+
+          // Pre-filter: Only add messages for current session or global messages
+          if (isGlobalMessage) {
+            // Global messages always pass through
+            setMessages(prev => [...prev, data]);
+          } else if (data.data?.session_id || data.sessionId) {
+            // Message has session info - check if it matches current session
+            const messageSessionId = data.data?.session_id || data.sessionId;
+            if (messageSessionId === currentSessionIdRef.current) {
+              // Matches current session - add it
+              setMessages(prev => [...prev, data]);
+            } else {
+              // Different session - skip it (no flash)
+              console.log('⏭️ [WebSocket] Skipping message for different session:',
+                          messageSessionId, 'current:', currentSessionIdRef.current);
+            }
+          } else {
+            // No session info - allow through (might be important system message)
+            setMessages(prev => [...prev, data]);
+          }
         } catch (error) {
           console.error('Error parsing WebSocket message:', error);
         }
@@ -130,6 +164,11 @@ export function useWebSocket() {
     setPendingPermissions(prev => prev.filter(r => r.id !== requestId));
   };
 
+  const setSessionId = useCallback((sessionId) => {
+    console.log('📍 [WebSocket] Setting current session ID:', sessionId);
+    currentSessionIdRef.current = sessionId;
+  }, []);
+
   return {
     ws,
     wsClient: permissionWebSocketClient,
@@ -139,6 +178,7 @@ export function useWebSocket() {
     pendingPermissions,
     permissionQueueStatus,
     sendPermissionResponse,
-    clearPermissionRequest
+    clearPermissionRequest,
+    setSessionId  // Export for external use
   };
 }

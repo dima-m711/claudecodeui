@@ -79,7 +79,7 @@ function AppContent() {
   // Triggers ChatInterface to reload messages without switching sessions
   const [externalMessageUpdate, setExternalMessageUpdate] = useState(0);
 
-  const { ws, sendMessage, messages } = useWebSocketContext();
+  const { ws, sendMessage, messages, setSessionId } = useWebSocketContext();
   
   // Detect if running as PWA
   const [isPWA, setIsPWA] = useState(false);
@@ -881,6 +881,7 @@ function AppContent() {
           ws={ws}
           sendMessage={sendMessage}
           messages={messages}
+          setSessionId={setSessionId}
           isMobile={isMobile}
           isPWA={isPWA}
           onMenuClick={() => setSidebarOpen(true)}

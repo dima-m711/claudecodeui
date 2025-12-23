@@ -37,6 +37,7 @@ function MainContent({
   ws,
   sendMessage,
   messages,
+  setSessionId,     // Function to update current session ID for WebSocket message filtering
   isMobile,
   isPWA,
   onMenuClick,
@@ -478,6 +479,7 @@ function MainContent({
                 ws={ws}
                 sendMessage={sendMessage}
                 messages={messages}
+                setSessionId={setSessionId}
                 onFileOpen={handleFileOpen}
                 onInputFocusChange={onInputFocusChange}
                 onSessionActive={onSessionActive}

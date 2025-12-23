@@ -1689,7 +1689,7 @@ const ImageAttachment = ({ file, onRemove, uploadProgress, error }) => {
 // - onReplaceTemporarySession: Called to replace temporary session ID with real WebSocket session ID
 //
 // This ensures uninterrupted chat experience by pausing sidebar refreshes during conversations.
-function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, messages, onFileOpen, onInputFocusChange, onSessionActive, onSessionInactive, onSessionProcessing, onSessionNotProcessing, processingSessions, onReplaceTemporarySession, onNavigateToSession, onShowSettings, autoExpandTools, showRawParameters, showThinking, autoScrollToBottom, sendByCtrlEnter, externalMessageUpdate, onTaskClick, onShowAllTasks }) {
+function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, messages, setSessionId, onFileOpen, onInputFocusChange, onSessionActive, onSessionInactive, onSessionProcessing, onSessionNotProcessing, processingSessions, onReplaceTemporarySession, onNavigateToSession, onShowSettings, autoExpandTools, showRawParameters, showThinking, autoScrollToBottom, sendByCtrlEnter, externalMessageUpdate, onTaskClick, onShowAllTasks }) {
   const { tasksEnabled } = useTasksSettings();
   const { activeRequest } = usePermission();
   const {
@@ -1708,6 +1708,13 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
   } = useInteraction();
 
   const [currentSessionId, setCurrentSessionId] = useState(selectedSession?.id || null);
+
+  // Sync currentSessionId with WebSocket message filtering
+  useEffect(() => {
+    if (setSessionId) {
+      setSessionId(currentSessionId);
+    }
+  }, [currentSessionId, setSessionId]);
 
   const sessionIds = useMemo(() => {
     if (currentSessionId) return [currentSessionId];
