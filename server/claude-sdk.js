@@ -163,6 +163,15 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
         }
       }
 
+      // Handle ExitPlanMode - bypass permission check, let plan approval handle it
+      if (toolName === 'ExitPlanMode') {
+        console.log('📋 [SDK] ExitPlanMode detected in canUseTool - auto-allowing (plan approval will handle user interaction)');
+        return {
+          behavior: 'allow',
+          updatedInput: input
+        };
+      }
+
       // Check permission mode-specific rules
       if (runtimeState.permissionMode === 'acceptEdits') {
         // In acceptEdits mode, auto-allow Read, Write, and Edit operations
