@@ -177,8 +177,8 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
             currentSessionId
           );
 
-          console.log(`✅ [SDK] Plan approved with mode: ${approvalResult.permissionMode}`);
-
+          console.log(`✅ [SDK] Plan approved with mode: ${approvalResult.permissionMode} ${runtimeState.permissionMode}`);
+          runtimeState.permissionMode = approvalResult.permissionMode;
           // ALLOW ExitPlanMode with updatedPermissions to change mode
           // SDK will automatically update the permission mode for the current session
           return {
@@ -635,9 +635,8 @@ async function queryClaudeSDK(command, options = {}, ws) {
         } else {
           console.log('⚠️ Not sending session-created. sessionId:', sessionId, 'sessionCreatedSent:', sessionCreatedSent);
         }
-      } else {
-        console.log('⚠️ No session_id in message or already captured. message.session_id:', message.session_id, 'capturedSessionId:', capturedSessionId);
       }
+
 
       // Transform and send message to WebSocket
       const transformedMessage = transformMessage(message);

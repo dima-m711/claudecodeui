@@ -186,10 +186,16 @@ export const PermissionProvider = ({ children, currentSessionId }) => {
     // Remove from queue
     dequeueRequest(requestId);
 
+    // CRITICAL: If updatedInput is not provided, use original request input
+    // This ensures "Allow" without edits still sends the tool parameters
+    const finalInput = updatedInput !== null && updatedInput !== undefined
+      ? updatedInput
+      : request.input;
+
     return {
       id: requestId,
       decision,
-      updatedInput
+      updatedInput: finalInput
     };
   }, [activeRequest, pendingRequests, dequeueRequest]);
 
