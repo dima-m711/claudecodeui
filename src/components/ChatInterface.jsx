@@ -3492,15 +3492,30 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
         }
 
         case 'session-status': {
-          const statusSessionId = latestMessage.sessionId;
-          const isCurrentSession = statusSessionId === currentSessionId ||
-                                   (selectedSession && statusSessionId === selectedSession.id);
-          if (isCurrentSession && latestMessage.isProcessing) {
-            // Session is currently processing, restore UI state
+          // Extract session ID from message (check both locations)
+          const statusSessionId = latestMessage.sessionId ||
+                                 latestMessage.data?.session_id;
+
+          // STRICT: Only process for exact current session
+          if (!statusSessionId || statusSessionId !== currentSessionId) {
+            console.log('⏭️ [Session Status] Ignoring status for session:',
+                        statusSessionId, 'current:', currentSessionId);
+            return;
+          }
+
+          // Process status for current session
+          if (latestMessage.isProcessing) {
             setIsLoading(true);
             setCanAbortSession(true);
             if (onSessionProcessing) {
               onSessionProcessing(statusSessionId);
+            }
+          } else {
+            // Not processing - clear loading state
+            setIsLoading(false);
+            setCanAbortSession(false);
+            if (onSessionNotProcessing) {
+              onSessionNotProcessing(statusSessionId);
             }
           }
           break;
@@ -4503,6 +4518,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
               <InteractionRenderer
                 interactions={nonPermissionInteractions}
                 onResponse={handleInteractionResponse}
+                currentSessionId={currentSessionId}
               />
             )}
           </>

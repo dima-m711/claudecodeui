@@ -49,6 +49,13 @@ export const InteractionProvider = ({ children, sessionIds = [] }) => {
   const addInteraction = useCallback((interaction) => {
     console.log(`🔄 [Interaction] Adding ${interaction.type} interaction:`, interaction.id);
 
+c    // STRICT: Only add interaction if it belongs to current sessionIds
+    if (interaction.sessionId && !sessionIds.includes(interaction.sessionId)) {
+      console.log('⏭️ [Interaction] Ignoring interaction for different session:',
+                  interaction.sessionId, 'current sessions:', sessionIds);
+      return;
+    }
+
     const interactionWithTimestamp = {
       ...interaction,
       requestedAt: interaction.requestedAt || Date.now()
@@ -65,7 +72,7 @@ export const InteractionProvider = ({ children, sessionIds = [] }) => {
       }
       return [...prev, interactionWithTimestamp];
     });
-  }, []);
+  }, [sessionIds]);
 
   const removeInteraction = useCallback((interactionId) => {
     console.log('🔄 [Interaction] Removing interaction:', interactionId);

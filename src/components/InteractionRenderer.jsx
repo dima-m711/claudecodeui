@@ -5,7 +5,7 @@ import PermissionDetails from './PermissionDetails';
 import PlanApprovalDetails from './PlanApprovalDetails';
 import AskUserDetails from './AskUserDetails';
 
-const InteractionRenderer = ({ interactions, onResponse }) => {
+const InteractionRenderer = ({ interactions, onResponse, currentSessionId }) => {
   if (!interactions || interactions.length === 0) {
     return null;
   }
@@ -23,9 +23,26 @@ const InteractionRenderer = ({ interactions, onResponse }) => {
     }
   };
 
+  // Defensive filtering: Only render interactions for current session
+  const sessionFilteredInteractions = interactions.filter(interaction => {
+    if (!interaction.sessionId || !currentSessionId) {
+      return true; // No session info - allow through
+    }
+    const shouldRender = interaction.sessionId === currentSessionId;
+    if (!shouldRender) {
+      console.log('⏭️ [InteractionRenderer] Skipping interaction for different session:',
+                  interaction.sessionId, 'current:', currentSessionId);
+    }
+    return shouldRender;
+  });
+
+  if (sessionFilteredInteractions.length === 0) {
+    return null;
+  }
+
   return (
     <div className="w-full">
-      {interactions.map((interaction) => (
+      {sessionFilteredInteractions.map((interaction) => (
         <InteractionInlineMessage
           key={interaction.id}
           interaction={interaction}
