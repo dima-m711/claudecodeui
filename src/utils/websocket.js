@@ -91,7 +91,9 @@ export function useWebSocket() {
             'claude-complete',
             'claude-error',
             'token-budget',
-            'plan-execution-start'
+            'plan-execution-start',
+            'interaction-request',        // Always pass through interactions (permission, plan-approval, ask-user)
+            'interaction-sync-response'   // Always pass through interaction sync
           ];
 
           const isGlobalMessage = globalMessageTypes.includes(data.type);

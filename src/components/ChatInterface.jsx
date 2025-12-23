@@ -3009,8 +3009,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
       switch (latestMessage.type) {
         case 'session-created':
           // New session created by Claude CLI - we receive the real session ID here
-          // Store it temporarily until conversation completes (prevents premature session association)
-          if (latestMessage.sessionId && !currentSessionId) {
+          if (latestMessage.sessionId) {
             sessionStorage.setItem('pendingSessionId', latestMessage.sessionId);
 
             // Session Protection: Replace temporary "new-session-*" identifier with real session ID
@@ -3018,6 +3017,13 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
             // The temporary session is removed and real session is marked as active
             if (onReplaceTemporarySession) {
               onReplaceTemporarySession(latestMessage.sessionId);
+            }
+
+            // Navigate to the new session (like other system message handlers do)
+            // This ensures user is redirected to the session URL
+            if (!currentSessionId && onNavigateToSession) {
+              setIsSystemSessionChange(true);
+              onNavigateToSession(latestMessage.sessionId);
             }
           }
           break;

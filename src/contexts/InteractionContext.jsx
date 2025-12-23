@@ -49,20 +49,28 @@ export const InteractionProvider = ({ children, sessionIds = [] }) => {
   const addInteraction = useCallback((interaction) => {
     console.log(`🔄 [Interaction] Adding ${interaction.type} interaction:`, interaction.id);
 
-c    // STRICT: Only add interaction if it belongs to current sessionIds
-    if (interaction.sessionId && !sessionIds.includes(interaction.sessionId)) {
-      console.log('⏭️ [Interaction] Ignoring interaction for different session:',
-                  interaction.sessionId, 'current sessions:', sessionIds);
-      return;
-    }
-
     const interactionWithTimestamp = {
       ...interaction,
       requestedAt: interaction.requestedAt || Date.now()
     };
 
+    // ALWAYS save to localStorage regardless of current session
+    // This ensures interactions are persisted even when session is not in focus
     if (interaction.sessionId) {
       savePendingInteraction(interaction.sessionId, interactionWithTimestamp);
+      console.log(`💾 [Interaction] Saved to localStorage for session: ${interaction.sessionId}`);
+    }
+
+    // Only add to React state if it belongs to current sessionIds
+    // This keeps the UI clean but preserves data for later
+    const shouldAddToState = sessionIds.length === 0 ||
+                             !interaction.sessionId ||
+                             sessionIds.includes(interaction.sessionId);
+
+    if (!shouldAddToState) {
+      console.log('⏭️ [Interaction] Saved to storage but not adding to state (different session):',
+                  interaction.sessionId, 'current sessions:', sessionIds);
+      return;
     }
 
     setPendingInteractions(prev => {
