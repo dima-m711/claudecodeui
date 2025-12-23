@@ -163,13 +163,45 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
         }
       }
 
-      // Handle ExitPlanMode - bypass permission check, let plan approval handle it
+      // Handle ExitPlanMode - request plan approval and deny to trigger phase transition
       if (toolName === 'ExitPlanMode') {
-        console.log('📋 [SDK] ExitPlanMode detected in canUseTool - auto-allowing (plan approval will handle user interaction)');
-        return {
-          behavior: 'allow',
-          updatedInput: input
-        };
+        console.log('📋 [SDK] ExitPlanMode detected in canUseTool');
+
+        try {
+          const planApprovalManager = getPlanApprovalManager();
+          const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
+
+          // Request plan approval from user
+          const approvalResult = await planApprovalManager.requestPlanApproval(
+            input.plan || input,
+            currentSessionId
+          );
+
+          console.log(`✅ [SDK] Plan approved with mode: ${approvalResult.permissionMode}`);
+
+          // Store approved mode in session for restart
+          if (currentSessionId) {
+            const session = getSession(currentSessionId);
+            if (session) {
+              session.planApproved = true;
+              session.nextPermissionMode = approvalResult.permissionMode;
+            }
+          }
+
+          // Deny with interrupt to end planning phase
+          return {
+            behavior: 'deny',
+            message: 'Plan approved by user. Transitioning to execution mode...',
+            interrupt: true
+          };
+        } catch (error) {
+          console.error('❌ [SDK] Plan approval failed:', error.message);
+          return {
+            behavior: 'deny',
+            message: `Plan rejected: ${error.message}`,
+            interrupt: false // Let user try again
+          };
+        }
       }
 
       // Check permission mode-specific rules
@@ -255,7 +287,9 @@ function addSession(sessionId, queryInstance, tempImagePaths = [], tempDir = nul
     startTime: Date.now(),
     status: 'active',
     tempImagePaths,
-    tempDir
+    tempDir,
+    planApproved: false,        // Track if plan was approved for phase transition
+    nextPermissionMode: null    // Permission mode for next query after plan approval
   });
 }
 
@@ -574,60 +608,8 @@ async function queryClaudeSDK(command, options = {}, ws) {
               rawContentPreview: JSON.stringify(message).substring(0, 500)
             });
 
-            // Detect ExitPlanMode tool usage
-            const exitPlanModeTool = content.find(c => c.type === 'tool_use' && c.name === 'ExitPlanMode');
-
-            // 🔍 DEBUG: Log detection result
-              console.log('🔍 [DEBUG] ExitPlanMode detection:', {
-              found: !!exitPlanModeTool,
-              toolName: exitPlanModeTool?.name,
-              toolId: exitPlanModeTool?.id,
-              hasInput: !!exitPlanModeTool?.input,
-              hasPlan: !!exitPlanModeTool?.input?.plan,
-              planLength: exitPlanModeTool?.input?.plan?.length || 0,
-              inputKeys: exitPlanModeTool?.input ? Object.keys(exitPlanModeTool.input).join(', ') : 'N/A'
-            });
-            if (exitPlanModeTool && exitPlanModeTool.input && exitPlanModeTool.input.plan) {
-              console.log(`📋 [SDK] ExitPlanMode detected! Plan content length: ${exitPlanModeTool.input.plan.length}`);
-
-              // Request plan approval from user
-              const planApprovalManager = getPlanApprovalManager();
-              try {
-                console.log('✅ [DEBUG] Requesting plan approval NOW!');
-                console.log(`📋 [SDK] Requesting plan approval from user...`);
-                const approvalResult = await planApprovalManager.requestPlanApproval(
-                  exitPlanModeTool.input.plan,
-                  capturedSessionId || 'unknown'
-                );
-
-                console.log(`✅ [SDK] Plan approved! Switching to mode: ${approvalResult.permissionMode}`);
-
-                // Plan was approved - update runtime permission mode for subsequent tool calls
-                runtimeState.permissionMode = approvalResult.permissionMode;
-                console.log(`🔄 [SDK] Runtime permission mode updated to: ${runtimeState.permissionMode}`);
-
-              } catch (error) {
-                console.log(`❌ [SDK] Plan rejected or timed out: ${error.message}`);
-
-                // Plan was rejected - abort the conversation
-                ws.send(JSON.stringify({
-                  type: 'claude-response',
-                  data: {
-                    type: 'assistant',
-                    content: [{
-                      type: 'text',
-                      text: `Plan was ${error.message.includes('timeout') ? 'not approved in time' : 'rejected'}. Conversation aborted.`
-                    }]
-                  }
-                }));
-
-                // Stop processing
-                if (queryInstance && queryInstance.interrupt) {
-                  await queryInstance.interrupt();
-                }
-                return;
-              }
-            }
+            // Note: ExitPlanMode plan approval now handled in canUseTool callback
+            // No need for duplicate handling here
           } else {
             console.log(`🤖 [SDK] Assistant message (no content):`, {
               hasContent: !!message.content,
@@ -686,7 +668,46 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     console.log('🔄 [SDK] Generator loop completed');
 
-    // Clean up session on completion
+    // Check if session ended due to plan approval - if so, restart with execution mode
+    const session = capturedSessionId ? getSession(capturedSessionId) : null;
+    const shouldRestart = session?.planApproved && session?.nextPermissionMode;
+
+    if (shouldRestart) {
+      console.log(`📋 [SDK] Plan was approved, restarting in ${session.nextPermissionMode} mode`);
+
+      // Save the approved permission mode before any cleanup
+      const approvedMode = session.nextPermissionMode;
+
+      // Clean up OLD query resources (temp files from planning phase)
+      await cleanupTempFiles(tempImagePaths, tempDir);
+
+      // Note: We DON'T removeSession here because we're reusing the same sessionId
+      // The recursive queryClaudeSDK call will update the session with the new query instance
+
+      // Send transition message to frontend
+      ws.send(JSON.stringify({
+        type: 'plan-execution-start',
+        sessionId: capturedSessionId,
+        permissionMode: approvedMode
+      }));
+
+      // Restart query with execution mode
+      const restartOptions = {
+        ...options,
+        sessionId: capturedSessionId,        // Reuse same session ID for continuity
+        permissionMode: approvedMode
+      };
+
+      // Recursively call queryClaudeSDK with new mode
+      // This will create a NEW query instance and update the session
+      return queryClaudeSDK(
+        'Continue with the approved plan and execute it.',
+        restartOptions,
+        ws
+      );
+    }
+
+    // Normal completion path (no plan approval)
     if (capturedSessionId) {
       removeSession(capturedSessionId);
     }
