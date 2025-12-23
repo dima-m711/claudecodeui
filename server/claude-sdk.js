@@ -163,7 +163,7 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
         }
       }
 
-      // Handle ExitPlanMode - request plan approval and deny to trigger phase transition
+      // Handle ExitPlanMode - request plan approval and allow with updatedPermissions
       if (toolName === 'ExitPlanMode') {
         console.log('📋 [SDK] ExitPlanMode detected in canUseTool');
 
@@ -179,27 +179,23 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
 
           console.log(`✅ [SDK] Plan approved with mode: ${approvalResult.permissionMode}`);
 
-          // Store approved mode in session for restart
-          if (currentSessionId) {
-            const session = getSession(currentSessionId);
-            if (session) {
-              session.planApproved = true;
-              session.nextPermissionMode = approvalResult.permissionMode;
-            }
-          }
-
-          // Deny with interrupt to end planning phase
+          // ALLOW ExitPlanMode with updatedPermissions to change mode
+          // SDK will automatically update the permission mode for the current session
           return {
-            behavior: 'deny',
-            message: 'Plan approved by user. Transitioning to execution mode...',
-            interrupt: true
+            behavior: 'allow',
+            updatedInput: input,
+            updatedPermissions: [{
+              type: 'setMode',
+              mode: approvalResult.permissionMode,
+              destination: 'session'  // Apply to current session
+            }]
           };
         } catch (error) {
           console.error('❌ [SDK] Plan approval failed:', error.message);
           return {
             behavior: 'deny',
             message: `Plan rejected: ${error.message}`,
-            interrupt: false // Let user try again
+            interrupt: false  // Let user try again
           };
         }
       }
@@ -287,9 +283,7 @@ function addSession(sessionId, queryInstance, tempImagePaths = [], tempDir = nul
     startTime: Date.now(),
     status: 'active',
     tempImagePaths,
-    tempDir,
-    planApproved: false,        // Track if plan was approved for phase transition
-    nextPermissionMode: null    // Permission mode for next query after plan approval
+    tempDir
   });
 }
 
@@ -668,46 +662,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     console.log('🔄 [SDK] Generator loop completed');
 
-    // Check if session ended due to plan approval - if so, restart with execution mode
-    const session = capturedSessionId ? getSession(capturedSessionId) : null;
-    const shouldRestart = session?.planApproved && session?.nextPermissionMode;
-
-    if (shouldRestart) {
-      console.log(`📋 [SDK] Plan was approved, restarting in ${session.nextPermissionMode} mode`);
-
-      // Save the approved permission mode before any cleanup
-      const approvedMode = session.nextPermissionMode;
-
-      // Clean up OLD query resources (temp files from planning phase)
-      await cleanupTempFiles(tempImagePaths, tempDir);
-
-      // Note: We DON'T removeSession here because we're reusing the same sessionId
-      // The recursive queryClaudeSDK call will update the session with the new query instance
-
-      // Send transition message to frontend
-      ws.send(JSON.stringify({
-        type: 'plan-execution-start',
-        sessionId: capturedSessionId,
-        permissionMode: approvedMode
-      }));
-
-      // Restart query with execution mode
-      const restartOptions = {
-        ...options,
-        sessionId: capturedSessionId,        // Reuse same session ID for continuity
-        permissionMode: approvedMode
-      };
-
-      // Recursively call queryClaudeSDK with new mode
-      // This will create a NEW query instance and update the session
-      return queryClaudeSDK(
-        'Continue with the approved plan and execute it.',
-        restartOptions,
-        ws
-      );
-    }
-
-    // Normal completion path (no plan approval)
+    // Normal completion path
     if (capturedSessionId) {
       removeSession(capturedSessionId);
     }
