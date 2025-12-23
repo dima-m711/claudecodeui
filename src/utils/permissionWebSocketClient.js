@@ -231,22 +231,23 @@ class PermissionWebSocketClient {
 
     console.log('📤 Sending permission response:', response);
 
-    // Remove from pending requests
-    this.pendingRequests.delete(requestId);
-
-    // Send via WebSocket
+    // Send via WebSocket FIRST
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(JSON.stringify(response));
+        // Only delete after successful send
+        this.pendingRequests.delete(requestId);
         return true;
       } catch (error) {
         console.error('Failed to send permission response:', error);
         this.queueMessage(response);
+        // Keep request in pendingRequests since send failed
         return false;
       }
     } else {
       console.warn('WebSocket not connected, queuing response');
       this.queueMessage(response);
+      // Keep request in pendingRequests until queued message is sent
       return false;
     }
   }
@@ -275,6 +276,11 @@ class PermissionWebSocketClient {
       const message = this.messageQueue.shift();
       try {
         this.ws.send(JSON.stringify(message));
+
+        // If this was a permission response, remove the request now
+        if (message.type === WS_MESSAGE_TYPES.PERMISSION_RESPONSE && message.requestId) {
+          this.pendingRequests.delete(message.requestId);
+        }
       } catch (error) {
         console.error('Failed to send queued message:', error);
         // Put it back and stop processing
