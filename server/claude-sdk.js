@@ -24,6 +24,163 @@ import { getAskUserHandler } from './services/askUserHandler.js';
 // Session tracking: Map of session IDs to active query instances
 const activeSessions = new Map();
 
+async function handleAskUserQuestionTool(input, sessionIdRef) {
+  console.log('❓ [SDK] AskUserQuestion tool called');
+  try {
+    const askUserHandler = getAskUserHandler();
+    const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
+    const answers = await askUserHandler.askUser(input.questions || [input], currentSessionId);
+    console.log('✅ [SDK] Got user answers:', answers);
+    return {
+      behavior: 'allow',
+      updatedInput: { ...input, answers }
+    };
+  } catch (error) {
+    console.error('❌ [SDK] AskUserQuestion failed:', error.message);
+    return {
+      behavior: 'deny',
+      message: error.message || 'AskUserQuestion failed'
+    };
+  }
+}
+
+async function handleExitPlanModeTool(input, sessionIdRef, runtimeState) {
+  console.log('📋 [SDK] ExitPlanMode detected in canUseTool');
+
+  try {
+    const planApprovalManager = getPlanApprovalManager();
+    const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
+
+    const approvalResult = await planApprovalManager.requestPlanApproval(
+      input.plan || input,
+      currentSessionId
+    );
+
+    console.log(`✅ [SDK] Plan approved with mode: ${approvalResult.permissionMode} ${runtimeState.permissionMode}`);
+    runtimeState.permissionMode = approvalResult.permissionMode;
+
+    return {
+      behavior: 'allow',
+      updatedInput: input,
+      updatedPermissions: [{
+        type: 'setMode',
+        mode: approvalResult.permissionMode,
+        destination: 'session'
+      }]
+    };
+  } catch (error) {
+    console.error('❌ [SDK] Plan approval failed:', error.message);
+    return {
+      behavior: 'deny',
+      message: `Plan rejected: ${error.message}`,
+      interrupt: false
+    };
+  }
+}
+
+async function handleAcceptEditsMode(toolName, input) {
+  const autoAllowTools = ['Read', 'Write', 'Edit'];
+  if (autoAllowTools.includes(toolName)) {
+    console.log(`✅ Auto-allowing ${toolName} in acceptEdits mode`);
+    return { behavior: 'allow', updatedInput: input };
+  }
+  return null;
+}
+
+async function handlePlanMode(toolName, input) {
+  const planModeTools = [
+    'Read',
+    'Glob',
+    'Grep',
+    'Task',
+    'ExitPlanMode',
+    'TodoRead',
+    'TodoWrite',
+    'AskUserQuestion'
+  ];
+  if (!planModeTools.includes(toolName)) {
+    console.log(`❌ Denying ${toolName} in plan mode (not in allowed list)`);
+    return { behavior: 'deny', message: `${toolName} not allowed in plan mode` };
+  }
+  return null;
+}
+
+async function handleDefaultPermissionMode(toolName, input, requestId, ws, sessionIdRef, abortSignal, suggestions) {
+  console.log(`🔐 Permission request ${requestId} for tool: ${toolName}`);
+  if (process.env.DEBUG && process.env.DEBUG.includes('permissions')) {
+    console.log(`   Input: ${JSON.stringify(input).substring(0, 200)}...`);
+  }
+
+  try {
+    if (!ws || ws.readyState !== 1) {
+      console.warn('⚠️ No WebSocket connection, auto-denying permission');
+      return { behavior: 'deny', message: 'No WebSocket connection available' };
+    }
+
+    const permissionManager = getPermissionManager();
+    const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
+    console.log(`🔐 Permission request ${requestId} using sessionId:`, currentSessionId);
+    const result = await permissionManager.addRequest(requestId, toolName, input, currentSessionId, abortSignal, suggestions);
+
+    console.log(`🔐 Permission ${requestId} resolved: ${result.behavior}`);
+    console.log(`✅ [SDK] Returning result to SDK:`, JSON.stringify(result));
+    return result;
+
+  } catch (error) {
+    console.error(`❌ Permission request ${requestId} error:`, error.message);
+    return { behavior: 'deny', message: error.message || 'Permission request failed' };
+  }
+}
+
+function createCanUseToolHandler(runtimeState, ws, sessionIdRef) {
+  return async (toolName, input, options) => {
+    const abortSignal = options?.signal || options;
+    const suggestions = options?.suggestions;
+    const toolUseID = options?.toolUseID;
+
+    console.log('🔧 [SDK] canUseTool called with:', {
+      toolName: toolName,
+      toolNameType: typeof toolName,
+      input: input ? Object.keys(input) : 'none',
+      inputType: typeof input,
+      hasAbortSignal: !!abortSignal,
+      hasSuggestions: !!suggestions,
+      suggestionsCount: suggestions?.length || 0,
+      currentPermissionMode: runtimeState.permissionMode
+    });
+
+    const requestId = crypto.randomUUID();
+
+    switch (toolName) {
+      case 'AskUserQuestion':
+        return await handleAskUserQuestionTool(input, sessionIdRef);
+
+      case 'ExitPlanMode':
+        return await handleExitPlanModeTool(input, sessionIdRef, runtimeState);
+
+      default: {
+        switch (runtimeState.permissionMode) {
+          case 'acceptEdits': {
+            const result = await handleAcceptEditsMode(toolName, input);
+            if (result) return result;
+            break;
+          }
+
+          case 'plan': {
+            const result = await handlePlanMode(toolName, input);
+            if (result) return result;
+            break;
+          }
+        }
+
+        return await handleDefaultPermissionMode(
+          toolName, input, requestId, ws, sessionIdRef, abortSignal, suggestions
+        );
+      }
+    }
+  };
+}
+
 /**
  * Maps CLI options to SDK-compatible options format
  * @param {Object} options - CLI options
@@ -126,145 +283,7 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
   // Only if not in bypassPermissions mode
   if (runtimeState.permissionMode !== 'bypassPermissions' && ws) {
     console.log('✅ [SDK] Attaching canUseTool callback for interactive permissions');
-    const permissionManager = getPermissionManager();
-
-    sdkOptions.canUseTool = async (toolName, input, options) => {
-      // Extract options (SDK v0.1.75+ uses options object)
-      // Backward compatibility: if options is an AbortSignal, treat it as such
-      const abortSignal = options?.signal || options;
-      const suggestions = options?.suggestions;
-      const toolUseID = options?.toolUseID;
-
-      // Log what the SDK is actually passing
-      console.log('🔧 [SDK] canUseTool called with:', {
-        toolName: toolName,
-        toolNameType: typeof toolName,
-        input: input ? Object.keys(input) : 'none',
-        inputType: typeof input,
-        hasAbortSignal: !!abortSignal,
-        hasSuggestions: !!suggestions,
-        suggestionsCount: suggestions?.length || 0,
-        currentPermissionMode: runtimeState.permissionMode
-      });
-
-      // Generate unique request ID
-      const requestId = crypto.randomUUID();
-
-      // Handle AskUserQuestion tool through interaction system
-      if (toolName === 'AskUserQuestion') {
-        console.log('❓ [SDK] AskUserQuestion tool called');
-        try {
-          const askUserHandler = getAskUserHandler();
-          const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
-          const answers = await askUserHandler.askUser(input.questions || [input], currentSessionId);
-          console.log('✅ [SDK] Got user answers:', answers);
-          return {
-            behavior: 'allow',
-            updatedInput: { ...input, answers }
-          };
-        } catch (error) {
-          console.error('❌ [SDK] AskUserQuestion failed:', error.message);
-          return {
-            behavior: 'deny',
-            message: error.message || 'AskUserQuestion failed'
-          };
-        }
-      }
-
-      // Handle ExitPlanMode - request plan approval and allow with updatedPermissions
-      if (toolName === 'ExitPlanMode') {
-        console.log('📋 [SDK] ExitPlanMode detected in canUseTool');
-
-        try {
-          const planApprovalManager = getPlanApprovalManager();
-          const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
-
-          // Request plan approval from user
-          const approvalResult = await planApprovalManager.requestPlanApproval(
-            input.plan || input,
-            currentSessionId
-          );
-
-          console.log(`✅ [SDK] Plan approved with mode: ${approvalResult.permissionMode} ${runtimeState.permissionMode}`);
-          runtimeState.permissionMode = approvalResult.permissionMode;
-          // ALLOW ExitPlanMode with updatedPermissions to change mode
-          // SDK will automatically update the permission mode for the current session
-          return {
-            behavior: 'allow',
-            updatedInput: input,
-            updatedPermissions: [{
-              type: 'setMode',
-              mode: approvalResult.permissionMode,
-              destination: 'session'  // Apply to current session
-            }]
-          };
-        } catch (error) {
-          console.error('❌ [SDK] Plan approval failed:', error.message);
-          return {
-            behavior: 'deny',
-            message: `Plan rejected: ${error.message}`,
-            interrupt: false  // Let user try again
-          };
-        }
-      }
-
-      // Check permission mode-specific rules
-      if (runtimeState.permissionMode === 'acceptEdits') {
-        // In acceptEdits mode, auto-allow Read, Write, and Edit operations
-        const autoAllowTools = ['Read', 'Write', 'Edit'];
-        if (autoAllowTools.includes(toolName)) {
-          console.log(`✅ Auto-allowing ${toolName} in acceptEdits mode`);
-          return { behavior: 'allow', updatedInput: input };
-        }
-      }
-
-      if (runtimeState.permissionMode === 'plan') {
-        // In plan mode, only allow specific tools for exploration and planning
-        const planModeTools = [
-                    'Read',             // Read files for context
-                    'Glob',             // Search for files by pattern
-                    'Grep',             // Search code content
-                    'Task',             // Launch subagents
-                    'ExitPlanMode',     // Exit planning mode
-                    'TodoRead',         // Read todos
-                    'TodoWrite',        // Write todos
-                    'AskUserQuestion'   // Ask clarifying questions
-        ];
-        if (!planModeTools.includes(toolName)) {
-          console.log(`❌ Denying ${toolName} in plan mode (not in allowed list)`);
-          return { behavior: 'deny', message: `${toolName} not allowed in plan mode` };
-        }
-      }
-
-      // Log the permission request
-      console.log(`🔐 Permission request ${requestId} for tool: ${toolName}`);
-      if (process.env.DEBUG && process.env.DEBUG.includes('permissions')) {
-        console.log(`   Input: ${JSON.stringify(input).substring(0, 200)}...`);
-      }
-
-      try {
-        // Check if WebSocket is connected
-        if (!ws || ws.readyState !== 1) {
-          console.warn('⚠️ No WebSocket connection, auto-denying permission');
-          return { behavior: 'deny', message: 'No WebSocket connection available' };
-        }
-
-        // Add request to queue and await response
-        // Note: permissionManager will emit an event that broadcasts the request
-        const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
-        console.log(`🔐 Permission request ${requestId} using sessionId:`, currentSessionId);
-        const result = await permissionManager.addRequest(requestId, toolName, input, currentSessionId, abortSignal, suggestions);
-
-        console.log(`🔐 Permission ${requestId} resolved: ${result.behavior}`);
-        console.log(`✅ [SDK] Returning result to SDK:`, JSON.stringify(result));
-        return result;
-
-      } catch (error) {
-        console.error(`❌ Permission request ${requestId} error:`, error.message);
-        // On error, deny the permission
-        return { behavior: 'deny', message: error.message || 'Permission request failed' };
-      }
-    };
+    sdkOptions.canUseTool = createCanUseToolHandler(runtimeState, ws, sessionIdRef);
   } else {
     console.log('⚠️  [SDK] NOT attaching canUseTool callback');
     console.log('    Reason:', {
