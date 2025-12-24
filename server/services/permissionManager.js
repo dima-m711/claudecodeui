@@ -26,14 +26,6 @@ export class PermissionManager extends EventEmitter {
 
     this.interactionManager = getInteractionManager();
 
-    // Session-level permission cache (for allow-session decisions)
-    // Map of sessionId -> Map of cacheKey -> { decision, timestamp }
-    this.sessionPermissions = new Map();
-
-    // Cache configuration
-    this.maxSessionCacheEntries = 1000;
-    this.sessionCacheTTL = 60 * 60 * 1000; // 1 hour
-
     // Debug mode flag
     this.debugMode = process.env.DEBUG && process.env.DEBUG.includes('permissions');
 
@@ -66,20 +58,8 @@ export class PermissionManager extends EventEmitter {
    * @returns {Promise<Object>} Promise that resolves with permission result
    */
   async addRequest(id, toolName, input, sessionId = null, abortSignal = null, suggestions = null) {
-    // Check if this tool/input combination is in session cache
-    if (sessionId) {
-      const cacheKey = this.getSessionCacheKey(toolName, input);
-      const cachedDecision = this.getSessionPermission(sessionId, cacheKey);
-      if (cachedDecision) {
-        if (this.debugMode) {
-          console.log(`🔐 Using cached session permission for ${toolName}: ${cachedDecision} (session: ${sessionId})`);
-        }
-        // CRITICAL: Pass the current request's input as updatedInput
-        // Even though the decision is cached, the tool still needs its input parameters
-        // No suggestions needed for cached permissions (already persisted by SDK)
-        return createSdkPermissionResult(cachedDecision, input, null);
-      }
-    }
+    // SDK now handles session/permanent permission caching via updatedPermissions
+    // No need for server-side cache anymore
 
     // Delegate to InteractionManager
     try {
@@ -99,12 +79,7 @@ export class PermissionManager extends EventEmitter {
         }
       });
 
-      // Handle session caching
-      if (response.decision === PermissionDecision.ALLOW_SESSION && sessionId) {
-        const cacheKey = this.getSessionCacheKey(toolName, input);
-        this.setSessionPermission(sessionId, cacheKey, response.decision);
-      }
-
+      // SDK handles permission persistence via updatedPermissions
       return createSdkPermissionResult(response.decision, response.updatedInput, response.suggestions || suggestions);
     } catch (error) {
       if (this.debugMode) {
@@ -142,94 +117,6 @@ export class PermissionManager extends EventEmitter {
     return true;
   }
 
-
-  /**
-   * Gets a cache key for session-level permissions
-   * @param {string} toolName - Tool name
-   * @param {Object} input - Tool input
-   * @returns {string} Cache key
-   * @private
-   */
-  getSessionCacheKey(toolName, input) {
-    // Create a simple cache key based on tool and critical input params
-    // This is a basic implementation; Phase 4 will add pattern matching
-    const keyParts = [toolName];
-
-    switch (toolName) {
-      case 'Read':
-      case 'Write':
-      case 'Edit':
-        keyParts.push(input.file_path);
-        break;
-      case 'Bash':
-        // For now, don't cache Bash commands (too risky)
-        return `${toolName}_${Date.now()}_nocache`;
-      case 'WebFetch':
-        keyParts.push(input.url);
-        break;
-      default:
-        keyParts.push(JSON.stringify(input));
-    }
-
-    return keyParts.join('\x00');
-  }
-
-  /**
-   * Gets a session-specific cached permission with TTL check
-   * @param {string} sessionId - Session identifier
-   * @param {string} cacheKey - Cache key for the permission
-   * @returns {string|null} Cached permission decision or null if not found/expired
-   * @private
-   */
-  getSessionPermission(sessionId, cacheKey) {
-    const sessionCache = this.sessionPermissions.get(sessionId);
-    if (!sessionCache) return null;
-
-    const entry = sessionCache.get(cacheKey);
-    if (!entry) return null;
-
-    // Check TTL expiration
-    if (Date.now() - entry.timestamp > this.sessionCacheTTL) {
-      sessionCache.delete(cacheKey);
-      return null;
-    }
-
-    return entry.decision;
-  }
-
-  /**
-   * Sets a session-specific cached permission with TTL and size limit
-   * @param {string} sessionId - Session identifier
-   * @param {string} cacheKey - Cache key for the permission
-   * @param {string} permission - Permission decision to cache
-   * @private
-   */
-  setSessionPermission(sessionId, cacheKey, permission) {
-    let sessionCache = this.sessionPermissions.get(sessionId);
-    if (!sessionCache) {
-      sessionCache = new Map();
-      this.sessionPermissions.set(sessionId, sessionCache);
-    }
-
-    // Evict oldest entries if cache is full (simple LRU approximation)
-    if (sessionCache.size >= this.maxSessionCacheEntries) {
-      const oldestKey = sessionCache.keys().next().value;
-      sessionCache.delete(oldestKey);
-    }
-
-    sessionCache.set(cacheKey, { decision: permission, timestamp: Date.now() });
-  }
-
-  /**
-   * Clears session-level permission cache
-   */
-  clearSessionCache() {
-    this.sessionPermissions.clear();
-    if (this.debugMode) {
-      console.log('🔐 Cleared session permission cache');
-    }
-  }
-
   /**
    * Removes all data for a specific session
    * @param {string} sessionId - Session identifier to clean up
@@ -238,7 +125,6 @@ export class PermissionManager extends EventEmitter {
     if (!sessionId) return;
 
     this.interactionManager.removeSession(sessionId);
-    this.sessionPermissions.delete(sessionId);
 
     if (this.debugMode) {
       console.log(`🔐 Removed session ${sessionId} from permission manager`);
@@ -306,8 +192,7 @@ export class PermissionManager extends EventEmitter {
     const interactionStats = this.interactionManager.getStatistics();
     return {
       ...interactionStats.permission,
-      pendingCount: this.getPendingCount(),
-      sessionCacheSize: this.sessionPermissions.size
+      pendingCount: this.getPendingCount()
     };
   }
 
@@ -315,7 +200,7 @@ export class PermissionManager extends EventEmitter {
    * Shuts down the permission manager
    */
   shutdown() {
-    this.sessionPermissions.clear();
+    // SDK handles permission cleanup
     console.log('🔐 PermissionManager shut down');
   }
 }
