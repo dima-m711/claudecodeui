@@ -187,11 +187,12 @@ export function formatPermissionRequest(id, toolName, input) {
  * Creates an SDK permission result from a user decision
  * @param {string} decision - User decision
  * @param {Object} [updatedInput] - Optional modified input
+ * @param {Array} [suggestions] - Optional SDK-provided permission suggestions
  * @param message - Deny message
  * @param interrupt - Whether to interrupt execution on deny
  * @returns {Object} SDK-compatible permission result
  */
-export function createSdkPermissionResult(decision, updatedInput = null, message = null, interrupt = false) {
+export function createSdkPermissionResult(decision, updatedInput = null, suggestions = null, message = null, interrupt = false) {
   const behavior = (decision === PermissionDecision.ALLOW ||
                     decision === PermissionDecision.ALLOW_SESSION ||
                     decision === PermissionDecision.ALLOW_ALWAYS)
@@ -208,10 +209,37 @@ export function createSdkPermissionResult(decision, updatedInput = null, message
     }
     result.updatedInput = updatedInput || {};
   }
-  // For future: Add updatedPermissions for allow-always decisions
-  if (decision === PermissionDecision.ALLOW_ALWAYS) {
-    // This will be implemented in Phase 4 (Memory & Patterns)
-    // result.updatedPermissions = { ... };
+
+  // Add updatedPermissions for session and always-allow decisions
+  if (decision === PermissionDecision.ALLOW_SESSION || decision === PermissionDecision.ALLOW_ALWAYS) {
+    if (suggestions && suggestions.length > 0) {
+      // Use SDK-provided suggestions (recommended approach)
+      // Filter suggestions to match the decision type
+      const destination = decision === PermissionDecision.ALLOW_SESSION ? 'session' : 'localSettings';
+
+      result.updatedPermissions = suggestions.map(suggestion => ({
+        ...suggestion,
+        destination  // Override destination based on user's decision
+      }));
+
+      console.log(`✅ [PermissionTypes] Using SDK suggestions for ${decision}:`,
+                  result.updatedPermissions.length, 'updates');
+    } else {
+      // Fallback: Create simple permission update if no suggestions provided
+      const destination = decision === PermissionDecision.ALLOW_SESSION ? 'session' : 'localSettings';
+
+      result.updatedPermissions = [{
+        type: 'addRules',
+        rules: [{
+          toolName: updatedInput?.command ? 'Bash' : 'Unknown',  // Try to infer tool name
+          ruleContent: undefined  // No specific rule content
+        }],
+        behavior: 'allow',
+        destination
+      }];
+
+      console.warn(`⚠️ [PermissionTypes] No SDK suggestions, using fallback for ${decision}`);
+    }
   }
   if (behavior === PermissionBehavior.DENY) {
     result.message = message || 'Permission denied by user';

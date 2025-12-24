@@ -62,9 +62,10 @@ export class PermissionManager extends EventEmitter {
    * @param {Object} input - Tool input parameters
    * @param {string} [sessionId] - Optional session identifier
    * @param {AbortSignal} [abortSignal] - Optional abort signal
+   * @param {Array} [suggestions] - Optional SDK-provided permission suggestions
    * @returns {Promise<Object>} Promise that resolves with permission result
    */
-  async addRequest(id, toolName, input, sessionId = null, abortSignal = null) {
+  async addRequest(id, toolName, input, sessionId = null, abortSignal = null, suggestions = null) {
     // Check if this tool/input combination is in session cache
     if (sessionId) {
       const cacheKey = this.getSessionCacheKey(toolName, input);
@@ -73,7 +74,10 @@ export class PermissionManager extends EventEmitter {
         if (this.debugMode) {
           console.log(`🔐 Using cached session permission for ${toolName}: ${cachedDecision} (session: ${sessionId})`);
         }
-        return createSdkPermissionResult(cachedDecision);
+        // CRITICAL: Pass the current request's input as updatedInput
+        // Even though the decision is cached, the tool still needs its input parameters
+        // No suggestions needed for cached permissions (already persisted by SDK)
+        return createSdkPermissionResult(cachedDecision, input, null);
       }
     }
 
@@ -87,7 +91,8 @@ export class PermissionManager extends EventEmitter {
           toolName,
           input,
           riskLevel: TOOL_RISK_LEVELS?.[toolName] || 'medium',
-          category: TOOL_CATEGORIES?.[toolName] || 'general'
+          category: TOOL_CATEGORIES?.[toolName] || 'general',
+          suggestions  // SDK-provided permission suggestions
         },
         metadata: {
           abortSignal
@@ -100,7 +105,7 @@ export class PermissionManager extends EventEmitter {
         this.setSessionPermission(sessionId, cacheKey, response.decision);
       }
 
-      return createSdkPermissionResult(response.decision, response.updatedInput);
+      return createSdkPermissionResult(response.decision, response.updatedInput, response.suggestions || suggestions);
     } catch (error) {
       if (this.debugMode) {
         console.error(`❌ [Permission] Request ${id} failed:`, error.message);

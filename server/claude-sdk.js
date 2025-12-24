@@ -128,7 +128,13 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
     console.log('✅ [SDK] Attaching canUseTool callback for interactive permissions');
     const permissionManager = getPermissionManager();
 
-    sdkOptions.canUseTool = async (toolName, input, abortSignal) => {
+    sdkOptions.canUseTool = async (toolName, input, options) => {
+      // Extract options (SDK v0.1.75+ uses options object)
+      // Backward compatibility: if options is an AbortSignal, treat it as such
+      const abortSignal = options?.signal || options;
+      const suggestions = options?.suggestions;
+      const toolUseID = options?.toolUseID;
+
       // Log what the SDK is actually passing
       console.log('🔧 [SDK] canUseTool called with:', {
         toolName: toolName,
@@ -136,6 +142,8 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
         input: input ? Object.keys(input) : 'none',
         inputType: typeof input,
         hasAbortSignal: !!abortSignal,
+        hasSuggestions: !!suggestions,
+        suggestionsCount: suggestions?.length || 0,
         currentPermissionMode: runtimeState.permissionMode
       });
 
@@ -245,7 +253,7 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
         // Note: permissionManager will emit an event that broadcasts the request
         const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
         console.log(`🔐 Permission request ${requestId} using sessionId:`, currentSessionId);
-        const result = await permissionManager.addRequest(requestId, toolName, input, currentSessionId, abortSignal);
+        const result = await permissionManager.addRequest(requestId, toolName, input, currentSessionId, abortSignal, suggestions);
 
         console.log(`🔐 Permission ${requestId} resolved: ${result.behavior}`);
         console.log(`✅ [SDK] Returning result to SDK:`, JSON.stringify(result));
