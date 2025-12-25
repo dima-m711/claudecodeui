@@ -15,6 +15,7 @@ import { api } from '../utils/api';
 import { useTaskMaster } from '../contexts/TaskMasterContext';
 import { useTasksSettings } from '../contexts/TasksSettingsContext';
 import { usePermission } from '../contexts/PermissionContext';
+import { useInteraction } from '../contexts/InteractionContext';
 
 // Move formatTimeAgo outside component to avoid recreation on every render
 const formatTimeAgo = (dateString, currentTime) => {
@@ -84,6 +85,9 @@ function Sidebar({
 
   // Permission context for badge counts
   const { pendingRequests } = usePermission();
+
+  // Interaction context for badge counts
+  const { getInteractionsBySession } = useInteraction();
 
   
   // Starred projects state - persisted in localStorage
@@ -232,10 +236,14 @@ function Sidebar({
     return [...claudeSessions, ...cursorSessions].sort((a, b) => normalizeDate(b) - normalizeDate(a));
   };
 
-  // Helper function to get pending permission count for a session
+  // Helper function to get pending interaction count for a session
   const getPendingPermissionCount = (sessionId) => {
-    if (!sessionId || !pendingRequests) return 0;
-    return pendingRequests.filter(req => req.sessionId === sessionId).length;
+    if (!sessionId) return 0;
+
+    // Count all interaction types for this session
+    const interactionCount = getInteractionsBySession(sessionId).length;
+
+    return interactionCount;
   };
 
   // Helper function to get the last activity date for a project
@@ -1086,7 +1094,14 @@ function Sidebar({
                                         </Badge>
                                       )}
                                       {getPendingPermissionCount(session.id) > 0 && (
-                                        <Badge variant="default" className="text-xs px-1.5 py-0 ml-1 bg-amber-500 text-white">
+                                        <Badge
+                                          variant="default"
+                                          className={`text-xs px-1.5 py-0 ml-1 ${
+                                            selectedSession?.id === session.id
+                                              ? 'bg-blue-500 text-white animate-pulse'
+                                              : 'bg-amber-500 text-white'
+                                          }`}
+                                        >
                                           {getPendingPermissionCount(session.id)}
                                         </Badge>
                                       )}
@@ -1149,7 +1164,14 @@ function Sidebar({
                                         </Badge>
                                       )}
                                       {getPendingPermissionCount(session.id) > 0 && (
-                                        <Badge variant="default" className="text-xs px-1.5 py-0 ml-1 bg-amber-500 text-white">
+                                        <Badge
+                                          variant="default"
+                                          className={`text-xs px-1.5 py-0 ml-1 ${
+                                            selectedSession?.id === session.id
+                                              ? 'bg-blue-500 text-white animate-pulse'
+                                              : 'bg-amber-500 text-white'
+                                          }`}
+                                        >
                                           {getPendingPermissionCount(session.id)}
                                         </Badge>
                                       )}
