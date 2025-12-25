@@ -64,7 +64,7 @@ Take another snapshot and verify the input field is ready.
 ### Step 7: Send Plan-Triggering Message
 
 Use `mcp__mcpm_chrome-devtools__fill` to enter a message that will trigger plan mode:
-```
+```   
 I want to add a new feature to create todo items with priorities. Please enter plan mode and create a detailed implementation plan.
 ```
 
