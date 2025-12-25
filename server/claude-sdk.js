@@ -261,8 +261,9 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
   }
 
   // Map model (default to sonnet)
-  // Map model (default to sonnet)
+  // Valid models: sonnet, opus, haiku, opusplan, sonnet[1m]
   sdkOptions.model = options.model || 'sonnet';
+  console.log(`🤖 Using model: ${sdkOptions.model}`);
 
   // Map system prompt configuration
   sdkOptions.systemPrompt = {
