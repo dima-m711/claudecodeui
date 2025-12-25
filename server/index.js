@@ -1643,6 +1643,17 @@ async function startServer() {
                 interactionManager.resolveInteraction(response.interactionId, response.response);
             });
 
+            // Broadcast interaction resolution to ALL clients (for cross-tab sync)
+            interactionManager.on('interaction-resolved', (data) => {
+                console.log('🔄 Broadcasting interaction-resolved:', data.interactionId);
+                permissionWebSocketHandler.broadcastToAll({
+                    type: 'interaction-resolved',
+                    interactionId: data.interactionId,
+                    sessionId: data.sessionId,
+                    resolvedAt: data.resolvedAt
+                });
+            });
+
             // Backward compatibility: Keep legacy permission event handlers
             permissionManager.on('permission-request', (request) => {
                 console.log('🔐 [Legacy] Broadcasting permission request:', request.id);

@@ -1,10 +1,5 @@
 import React, { createContext, useState, useContext, useCallback, useEffect, useRef } from 'react';
-import {
-  savePendingInteraction,
-  removePendingInteraction,
-  clearAllInteractions,
-  getPendingInteractions
-} from '../utils/interactionStorage';
+import { useBroadcastChannel } from '../utils/interactionBroadcast';
 
 const InteractionContext = createContext();
 
@@ -25,6 +20,37 @@ export const useInteraction = () => {
 export const InteractionProvider = ({ children, sessionIds = [] }) => {
   const [pendingInteractions, setPendingInteractions] = useState([]);
   const lastSessionIdsRef = useRef([]);
+  const sessionIdsRef = useRef(sessionIds);
+
+  useEffect(() => {
+    sessionIdsRef.current = sessionIds;
+  }, [sessionIds]);
+
+  const handleBroadcast = useCallback((data) => {
+    switch (data.type) {
+      case 'interaction-added':
+        if (sessionIdsRef.current.includes(data.interaction.sessionId)) {
+          console.log('📡 [Interaction] Received from another tab:', data.interaction.id);
+          setPendingInteractions(prev => {
+            if (prev.find(i => i.id === data.interaction.id)) return prev;
+            return [...prev, data.interaction];
+          });
+        }
+        break;
+      case 'interaction-removed':
+        console.log('📡 [Interaction] Removing from another tab:', data.interactionId);
+        setPendingInteractions(prev => prev.filter(i => i.id !== data.interactionId));
+        break;
+      case 'interaction-updated':
+        console.log('📡 [Interaction] Updating from another tab:', data.interactionId);
+        setPendingInteractions(prev =>
+          prev.map(i => i.id === data.interactionId ? { ...i, ...data.updates } : i)
+        );
+        break;
+    }
+  }, []);
+
+  const { broadcast } = useBroadcastChannel(handleBroadcast);
 
   useEffect(() => {
     const sessionIdsChanged =
@@ -40,9 +66,7 @@ export const InteractionProvider = ({ children, sessionIds = [] }) => {
         return;
       }
 
-      console.log('🔄 [Interaction] Sessions changed, loading from storage:', sessionIds);
-      const stored = getPendingInteractions(sessionIds);
-      setPendingInteractions(stored);
+      console.log('🔄 [Interaction] Sessions changed:', sessionIds);
     }
   }, [sessionIds]);
 
@@ -54,22 +78,14 @@ export const InteractionProvider = ({ children, sessionIds = [] }) => {
       requestedAt: interaction.requestedAt || Date.now()
     };
 
-    // ALWAYS save to localStorage regardless of current session
-    // This ensures interactions are persisted even when session is not in focus
-    if (interaction.sessionId) {
-      savePendingInteraction(interaction.sessionId, interactionWithTimestamp);
-      console.log(`💾 [Interaction] Saved to localStorage for session: ${interaction.sessionId}`);
-    }
+    broadcast({ type: 'interaction-added', interaction: interactionWithTimestamp });
 
-    // Only add to React state if it belongs to current sessionIds
-    // This keeps the UI clean but preserves data for later
-    const shouldAddToState = sessionIds.length === 0 ||
-                             !interaction.sessionId ||
-                             sessionIds.includes(interaction.sessionId);
+    const shouldAddToState = interaction.sessionId &&
+                             sessionIdsRef.current.length > 0 &&
+                             sessionIdsRef.current.includes(interaction.sessionId);
 
     if (!shouldAddToState) {
-      console.log('⏭️ [Interaction] Saved to storage but not adding to state (different session):',
-                  interaction.sessionId, 'current sessions:', sessionIds);
+      console.log('⏭️ [Interaction] Broadcast sent but not adding to local state (different session)');
       return;
     }
 
@@ -80,36 +96,23 @@ export const InteractionProvider = ({ children, sessionIds = [] }) => {
       }
       return [...prev, interactionWithTimestamp];
     });
-  }, [sessionIds]);
+  }, [broadcast]);
 
   const removeInteraction = useCallback((interactionId) => {
     console.log('🔄 [Interaction] Removing interaction:', interactionId);
 
-    setPendingInteractions(prev => {
-      const interaction = prev.find(i => i.id === interactionId);
-      if (interaction?.sessionId) {
-        removePendingInteraction(interaction.sessionId, interactionId);
-      }
-      return prev.filter(i => i.id !== interactionId);
-    });
-  }, []);
+    broadcast({ type: 'interaction-removed', interactionId });
+    setPendingInteractions(prev => prev.filter(i => i.id !== interactionId));
+  }, [broadcast]);
 
   const updateInteraction = useCallback((interactionId, updates) => {
     console.log('🔄 [Interaction] Updating interaction:', interactionId, updates);
 
-    setPendingInteractions(prev => {
-      const updated = prev.map(i =>
-        i.id === interactionId ? { ...i, ...updates } : i
-      );
-
-      const interaction = updated.find(i => i.id === interactionId);
-      if (interaction?.sessionId) {
-        savePendingInteraction(interaction.sessionId, interaction);
-      }
-
-      return updated;
-    });
-  }, []);
+    broadcast({ type: 'interaction-updated', interactionId, updates });
+    setPendingInteractions(prev =>
+      prev.map(i => i.id === interactionId ? { ...i, ...updates } : i)
+    );
+  }, [broadcast]);
 
   const getInteractionsByType = useCallback((type) => {
     return pendingInteractions.filter(i => i.type === type);
@@ -125,38 +128,22 @@ export const InteractionProvider = ({ children, sessionIds = [] }) => {
 
   const clearInteractions = useCallback(() => {
     console.log('🔄 [Interaction] Clearing all interactions');
-
-    sessionIds.forEach(sessionId => {
-      if (sessionId) {
-        clearAllInteractions(sessionId);
-      }
-    });
-
     setPendingInteractions([]);
-  }, [sessionIds]);
+  }, []);
 
   const clearInteractionsBySession = useCallback((sessionId) => {
     console.log('🔄 [Interaction] Clearing interactions for session:', sessionId);
-
-    if (sessionId) {
-      clearAllInteractions(sessionId);
-    }
-
     setPendingInteractions(prev => prev.filter(i => i.sessionId !== sessionId));
   }, []);
 
   const clearInteractionsByType = useCallback((type) => {
     console.log('🔄 [Interaction] Clearing interactions of type:', type);
-
-    const toRemove = pendingInteractions.filter(i => i.type === type);
-
-    toRemove.forEach(interaction => {
-      if (interaction.sessionId) {
-        removePendingInteraction(interaction.sessionId, interaction.id);
-      }
-    });
-
     setPendingInteractions(prev => prev.filter(i => i.type !== type));
+  }, []);
+
+  const getInteractionCountBySession = useCallback((sessionId) => {
+    if (!sessionId) return 0;
+    return pendingInteractions.filter(i => i.sessionId === sessionId).length;
   }, [pendingInteractions]);
 
   const value = {
@@ -169,6 +156,7 @@ export const InteractionProvider = ({ children, sessionIds = [] }) => {
     getInteractionsByType,
     getInteractionById,
     getInteractionsBySession,
+    getInteractionCountBySession,
     clearInteractions,
     clearInteractionsBySession,
     clearInteractionsByType,

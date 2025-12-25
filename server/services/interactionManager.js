@@ -111,6 +111,12 @@ export class InteractionManager extends EventEmitter {
 
     interaction.resolve(response);
 
+    this.emit('interaction-resolved', {
+      interactionId,
+      sessionId: interaction.sessionId,
+      resolvedAt: interaction.decidedAt
+    });
+
     return { success: true };
   }
 

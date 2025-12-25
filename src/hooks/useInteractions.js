@@ -39,6 +39,11 @@ export function useInteractions(ws, sessionIds = []) {
             });
           }
         }
+
+        if (data.type === 'interaction-resolved') {
+          console.log('🔄 [WebSocket] Interaction resolved by server:', data.interactionId);
+          removeInteraction(data.interactionId);
+        }
       } catch (error) {
         console.error('Failed to parse interaction message:', error);
       }
@@ -49,7 +54,7 @@ export function useInteractions(ws, sessionIds = []) {
     return () => {
       ws.removeEventListener('message', handleMessage);
     };
-  }, [ws, addInteraction]);
+  }, [ws, addInteraction, removeInteraction]);
 
   useEffect(() => {
     if (!ws || !sessionIds || sessionIds.length === 0) return;
