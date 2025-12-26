@@ -64,7 +64,6 @@ import { getPermissionManager } from './services/permissionManager.js';
 import { getPlanApprovalManager } from './services/planApprovalManager.js';
 import { getInteractionManager } from './services/interactionManager.js';
 import { setupConsoleApproval } from './services/consoleApproval.js';
-import PermissionWebSocketHandler from './services/permissionWebSocketHandler.js';
 import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
 import mcpRoutes from './routes/mcp.js';
@@ -77,15 +76,13 @@ import agentRoutes from './routes/agent.js';
 import projectsRoutes from './routes/projects.js';
 import cliAuthRoutes from './routes/cli-auth.js';
 import userRoutes from './routes/user.js';
+import interactionsRoutes from './routes/interactions.js';
 import { initializeDatabase } from './database/db.js';
-import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
+import { validateApiKey, authenticateToken } from './middleware/auth.js';
 
 // File system watcher for projects folder
 let projectsWatcher = null;
 const connectedClients = new Set();
-
-// Initialize permission WebSocket handler
-const permissionWebSocketHandler = new PermissionWebSocketHandler();
 
 // Setup file system watcher for Claude projects folder using chokidar
 async function setupProjectsWatcher() {
@@ -177,46 +174,7 @@ const server = http.createServer(app);
 const ptySessionsMap = new Map();
 const PTY_SESSION_TIMEOUT = 30 * 60 * 1000;
 
-// Single WebSocket server that handles both paths
-const wss = new WebSocketServer({
-    server,
-    verifyClient: (info) => {
-        console.log('WebSocket connection attempt to:', info.req.url);
-
-        // Platform mode: always allow connection
-        if (process.env.VITE_IS_PLATFORM === 'true') {
-            const user = authenticateWebSocket(null); // Will return first user
-            if (!user) {
-                console.log('[WARN] Platform mode: No user found in database');
-                return false;
-            }
-            info.req.user = user;
-            console.log('[OK] Platform mode WebSocket authenticated for user:', user.username);
-            return true;
-        }
-
-        // Normal mode: verify token
-        // Extract token from query parameters or headers
-        const url = new URL(info.req.url, 'http://localhost');
-        const token = url.searchParams.get('token') ||
-            info.req.headers.authorization?.split(' ')[1];
-
-        // Verify token
-        const user = authenticateWebSocket(token);
-        if (!user) {
-            console.log('[WARN] WebSocket authentication failed');
-            return false;
-        }
-
-        // Store user info in the request for later use
-        info.req.user = user;
-        console.log('[OK] WebSocket authenticated for user:', user.username);
-        return true;
-    }
-});
-
-// Make WebSocket server available to routes
-app.locals.wss = wss;
+const wss = new WebSocketServer({ server, path: '/shell' });
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -268,6 +226,9 @@ app.use('/api/user', authenticateToken, userRoutes);
 
 // Agent API Routes (uses API key authentication)
 app.use('/api/agent', agentRoutes);
+
+// Interaction API Routes (protected)
+app.use('/api/interactions', authenticateToken, interactionsRoutes);
 
 // Serve public files (like api-docs.html)
 app.use(express.static(path.join(__dirname, '../public')));
@@ -691,198 +652,11 @@ app.get('/api/projects/:projectName/files', authenticateToken, async (req, res) 
     }
 });
 
-// WebSocket connection handler that routes based on URL path
 wss.on('connection', (ws, request) => {
-    const url = request.url;
-    console.log('[INFO] Client connected to:', url);
-
-    // Parse URL to get pathname without query parameters
-    const urlObj = new URL(url, 'http://localhost');
-    const pathname = urlObj.pathname;
-
-    if (pathname === '/shell') {
-        handleShellConnection(ws);
-    } else if (pathname === '/ws') {
-        handleChatConnection(ws);
-    } else {
-        console.log('[WARN] Unknown WebSocket path:', pathname);
-        ws.close();
-    }
+    console.log('[INFO] Shell client connected');
+    handleShellConnection(ws);
 });
 
-// Handle chat WebSocket connections
-function handleChatConnection(ws) {
-    console.log('[INFO] Chat WebSocket connected');
-
-    // Add to connected clients for project updates
-    connectedClients.add(ws);
-
-    // Add client to permission WebSocket handler
-    const clientId = `client-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    ws.clientId = clientId;
-    permissionWebSocketHandler.addClient(ws, clientId);
-
-    ws.on('message', async (message) => {
-        try {
-            const data = JSON.parse(message);
-
-            // Handle permission response messages
-            if (data.type === 'permission-response') {
-                console.log('📨 Received permission response from client');
-                const clientId = ws.clientId || `client-${Date.now()}`;
-                permissionWebSocketHandler.handlePermissionResponse(clientId, data);
-                return;
-            }
-
-            // Handle permission sync request (after page refresh)
-            if (data.type === 'permission-sync-request') {
-                console.log('🔄 Received permission sync request for session:', data.sessionId);
-                const clientId = ws.clientId || `client-${Date.now()}`;
-                const permissionManager = getPermissionManager();
-                permissionWebSocketHandler.handlePermissionSyncRequest(clientId, data, permissionManager);
-                return;
-            }
-
-            // Handle plan approval response messages
-            if (data.type === 'plan-approval-response') {
-                console.log('📋 Received plan approval response from client');
-                const clientId = ws.clientId || `client-${Date.now()}`;
-                permissionWebSocketHandler.handlePlanApprovalResponse(clientId, data);
-                return;
-            }
-
-            // Handle generic interaction response messages
-            if (data.type === 'interaction-response') {
-                console.log('🔄 Received interaction response from client');
-                const clientId = ws.clientId || `client-${Date.now()}`;
-                permissionWebSocketHandler.handleInteractionResponse(clientId, data);
-                return;
-            }
-
-            // Handle generic interaction sync request
-            if (data.type === 'interaction-sync-request') {
-                console.log('🔄 Received interaction sync request for sessions:', data.sessionIds);
-                const clientId = ws.clientId || `client-${Date.now()}`;
-                const interactionManager = getInteractionManager();
-                permissionWebSocketHandler.handleInteractionSyncRequest(clientId, data, interactionManager);
-                return;
-            }
-
-            if (data.type === 'claude-command') {
-                console.log('[DEBUG] User message:', data.command || '[Continue/Resume]');
-                console.log('📁 Project:', data.options?.projectPath || 'Unknown');
-                console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
-                console.log('🔐 Permission Mode:', data.options?.permissionMode || 'UNDEFINED');
-                console.log('🔐 Skip Permissions:', data.options?.toolsSettings?.skipPermissions ?? 'UNDEFINED');
-                console.log('🌐 WebSocket State:', ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][ws.readyState] || 'UNKNOWN');
-
-                // Use Claude Agents SDK
-                await queryClaudeSDK(data.command, data.options, ws);
-            } else if (data.type === 'cursor-command') {
-                console.log('[DEBUG] Cursor message:', data.command || '[Continue/Resume]');
-                console.log('📁 Project:', data.options?.cwd || 'Unknown');
-                console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
-                console.log('🤖 Model:', data.options?.model || 'default');
-                await spawnCursor(data.command, data.options, ws);
-            } else if (data.type === 'cursor-resume') {
-                // Backward compatibility: treat as cursor-command with resume and no prompt
-                console.log('[DEBUG] Cursor resume session (compat):', data.sessionId);
-                await spawnCursor('', {
-                    sessionId: data.sessionId,
-                    resume: true,
-                    cwd: data.options?.cwd
-                }, ws);
-            } else if (data.type === 'abort-session') {
-                console.log('[DEBUG] Abort session request:', data.sessionId);
-                const provider = data.provider || 'claude';
-                let success;
-
-                if (provider === 'cursor') {
-                    success = abortCursorSession(data.sessionId);
-                } else {
-                    // Use Claude Agents SDK
-                    success = await abortClaudeSDKSession(data.sessionId);
-                }
-
-                ws.send(JSON.stringify({
-                    type: 'session-aborted',
-                    sessionId: data.sessionId,
-                    provider,
-                    success
-                }));
-            } else if (data.type === 'cursor-abort') {
-                console.log('[DEBUG] Abort Cursor session:', data.sessionId);
-                const success = abortCursorSession(data.sessionId);
-                ws.send(JSON.stringify({
-                    type: 'session-aborted',
-                    sessionId: data.sessionId,
-                    provider: 'cursor',
-                    success
-                }));
-            } else if (data.type === 'check-session-status') {
-                // Check if a specific session is currently processing
-                const provider = data.provider || 'claude';
-                const sessionId = data.sessionId;
-                let isActive;
-
-                if (provider === 'cursor') {
-                    isActive = isCursorSessionActive(sessionId);
-                } else {
-                    // Use Claude Agents SDK
-                    isActive = isClaudeSDKSessionActive(sessionId);
-                }
-
-                ws.send(JSON.stringify({
-                    type: 'session-status',
-                    sessionId,
-                    provider,
-                    isProcessing: isActive
-                }));
-            } else if (data.type === 'get-active-sessions') {
-                // Get all currently active sessions
-                const activeSessions = {
-                    claude: getActiveClaudeSDKSessions(),
-                    cursor: getActiveCursorSessions()
-                };
-                ws.send(JSON.stringify({
-                    type: 'active-sessions',
-                    sessions: activeSessions
-                }));
-            } else if (data.type === 'permission-response') {
-                // Handle permission response from frontend
-                console.log('[DEBUG] Permission response:', data.requestId, data.decision);
-
-                const permissionManager = getPermissionManager();
-                const success = permissionManager.resolveRequest(
-                    data.requestId,
-                    data.decision,
-                    data.updatedInput
-                );
-
-                // Send acknowledgment back to frontend
-                ws.send(JSON.stringify({
-                    type: 'permission-response-ack',
-                    requestId: data.requestId,
-                    success
-                }));
-            }
-        } catch (error) {
-            console.error('[ERROR] Chat WebSocket error:', error.message);
-            ws.send(JSON.stringify({
-                type: 'error',
-                error: error.message
-            }));
-        }
-    });
-
-    ws.on('close', () => {
-        console.log('🔌 Chat client disconnected');
-        // Remove from connected clients
-        connectedClients.delete(ws);
-    });
-}
-
-// Handle shell WebSocket connections
 function handleShellConnection(ws) {
     console.log('🐚 Shell client connected');
     let shellProcess = null;
@@ -1645,68 +1419,6 @@ async function startServer() {
 
             const appInstallPath = path.join(__dirname, '..');
 
-            // Initialize permission WebSocket handler with the WebSocket server
-            permissionWebSocketHandler.initialize(wss);
-
-            // Get manager instances
-            const interactionManager = getInteractionManager();
-            const permissionManager = getPermissionManager();
-            const planApprovalManager = getPlanApprovalManager();
-
-            // Connect InteractionManager to WebSocket handler
-            interactionManager.on('interaction-request', (interaction) => {
-                console.log(`🔄 Broadcasting ${interaction.type} interaction:`, interaction.id);
-                permissionWebSocketHandler.broadcastInteractionRequest(interaction);
-            });
-
-            // Listen for interaction responses from WebSocket handler
-            permissionWebSocketHandler.on('interaction-response', (response) => {
-                console.log('🔄 Received interaction response:', response.interactionId);
-                interactionManager.resolveInteraction(response.interactionId, response.response);
-            });
-
-            // Broadcast interaction resolution to ALL clients (for cross-tab sync)
-            interactionManager.on('interaction-resolved', (data) => {
-                console.log('🔄 Broadcasting interaction-resolved:', data.interactionId);
-                permissionWebSocketHandler.broadcastToAll({
-                    type: 'interaction-resolved',
-                    interactionId: data.interactionId,
-                    sessionId: data.sessionId,
-                    resolvedAt: data.resolvedAt
-                });
-            });
-
-            // Backward compatibility: Keep legacy permission event handlers
-            permissionManager.on('permission-request', (request) => {
-                console.log('🔐 [Legacy] Broadcasting permission request:', request.id);
-                permissionWebSocketHandler.broadcastPermissionRequest(request);
-            });
-
-            permissionWebSocketHandler.on('permission-response', (response) => {
-                console.log('📝 [Legacy] Received permission response:', response);
-                const success = permissionManager.resolveRequest(
-                    response.requestId,
-                    response.decision,
-                    response.updatedInput
-                );
-                console.log('🔍 [Legacy] resolveRequest returned:', success);
-            });
-
-            // Backward compatibility: Keep legacy plan approval event handlers
-            planApprovalManager.on('plan-request', (request) => {
-                console.log('📋 [Legacy] Broadcasting plan approval request:', request.planId);
-                permissionWebSocketHandler.broadcastPlanApprovalRequest(request);
-            });
-
-            permissionWebSocketHandler.on('plan-approval-response', (response) => {
-                console.log('📋 [Legacy] Received plan approval response:', response);
-                if (response.decision === 'approve') {
-                    planApprovalManager.resolvePlanApproval(response.planId, response.permissionMode);
-                } else {
-                    planApprovalManager.rejectPlanApproval(response.planId, response.reason || 'Plan rejected by user');
-                }
-            });
-
             console.log('');
             console.log(c.dim('═'.repeat(63)));
             console.log(`  ${c.bright('Claude Code UI Server - Ready')}`);
@@ -1721,7 +1433,7 @@ async function startServer() {
             await setupProjectsWatcher();
 
             // Initialize console approval for testing (if enabled)
-            setupConsoleApproval(permissionManager);
+            setupConsoleApproval(getPermissionManager());
         });
     } catch (error) {
         console.error('[ERROR] Failed to start server:', error);

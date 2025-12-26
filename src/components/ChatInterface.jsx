@@ -1722,7 +1722,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     return [];
   }, [currentSessionId, selectedSession?.id]);
 
-  const { sendInteractionResponse } = useInteractions(ws, sessionIds);
+  const { sendInteractionResponse } = useInteractions(sessionIds);
 
   const planApprovalInteractions = useMemo(() =>
     getInteractionsByType(INTERACTION_TYPES.PLAN_APPROVAL),
