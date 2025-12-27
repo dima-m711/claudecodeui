@@ -28,13 +28,11 @@ import CursorLogo from './CursorLogo.jsx';
 import NextTaskBanner from './NextTaskBanner.jsx';
 import { useTasksSettings } from '../contexts/TasksSettingsContext';
 import { PermissionInlineDialog } from './PermissionInlineDialog';
-import PermissionQueueIndicator from './PermissionQueueIndicator';
 import { usePermission } from '../contexts/PermissionContext';
 import usePermissions from '../hooks/usePermissions';
 import InteractionRenderer from './InteractionRenderer';
 import { useInteraction, INTERACTION_TYPES } from '../contexts/InteractionContext';
 import useInteractions from '../hooks/useInteractions';
-import { PERMISSION_DECISIONS } from '../utils/permissionWebSocketClient';
 
 import ClaudeStatus from './ClaudeStatus';
 import TokenUsagePie from './TokenUsagePie';

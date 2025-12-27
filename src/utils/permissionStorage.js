@@ -66,38 +66,3 @@ export function clearAllRequests(sessionId) {
   const key = `${STORAGE_KEY_PREFIX}${sessionId}`;
   sessionStorage.removeItem(key);
 }
-
-export function saveDialogState(sessionId, state) {
-  if (!sessionId) return;
-  const key = `claude-ui:permission-dialog:${sessionId}`;
-  try {
-    sessionStorage.setItem(key, JSON.stringify({
-      visible: state.visible,
-      activeRequestId: state.activeRequestId,
-      timestamp: Date.now()
-    }));
-  } catch (e) {
-    console.warn('Failed to save dialog state:', e);
-  }
-}
-
-export function getDialogState(sessionId) {
-  if (!sessionId) return null;
-  const key = `claude-ui:permission-dialog:${sessionId}`;
-  try {
-    const stored = sessionStorage.getItem(key);
-    if (!stored) return null;
-
-    const state = JSON.parse(stored);
-    const TTL = 60 * 60 * 1000;
-    if (Date.now() - state.timestamp > TTL) {
-      sessionStorage.removeItem(key);
-      return null;
-    }
-    return state;
-  } catch (e) {
-    console.warn('Failed to load dialog state:', e);
-    sessionStorage.removeItem(key);
-    return null;
-  }
-}
