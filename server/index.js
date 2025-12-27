@@ -62,7 +62,6 @@ import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getAct
 import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
 import { getInteractionManager } from './services/interactionManager.js';
 import { InteractionType, createSdkPermissionResult, PermissionDecision } from './services/interactionTypes.js';
-import PermissionWebSocketHandler from './services/permissionWebSocketHandler.js';
 import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
 import mcpRoutes from './routes/mcp.js';
@@ -80,10 +79,20 @@ import { validateApiKey, authenticateToken, authenticateWebSocket } from './midd
 
 // File system watcher for projects folder
 let projectsWatcher = null;
-const connectedClients = new Set();
+const connectedClients = new Map();
 
-// Initialize permission WebSocket handler
-const permissionWebSocketHandler = new PermissionWebSocketHandler();
+function broadcastToAll(message) {
+    const messageStr = typeof message === 'string' ? message : JSON.stringify(message);
+    connectedClients.forEach(({ ws }) => {
+        if (ws.readyState === WebSocket.OPEN) {
+            try {
+                ws.send(messageStr);
+            } catch (error) {
+                console.error('Failed to broadcast message:', error);
+            }
+        }
+    });
+}
 
 // Setup file system watcher for Claude projects folder using chokidar
 async function setupProjectsWatcher() {
@@ -130,18 +139,12 @@ async function setupProjectsWatcher() {
                     const updatedProjects = await getProjects();
 
                     // Notify all connected clients about the project changes
-                    const updateMessage = JSON.stringify({
+                    broadcastToAll({
                         type: 'projects_updated',
                         projects: updatedProjects,
                         timestamp: new Date().toISOString(),
                         changeType: eventType,
                         changedFile: path.relative(claudeProjectsPath, filePath)
-                    });
-
-                    connectedClients.forEach(client => {
-                        if (client.readyState === WebSocket.OPEN) {
-                            client.send(updateMessage);
-                        }
                     });
 
                 } catch (error) {
@@ -712,32 +715,30 @@ wss.on('connection', (ws, request) => {
 function handleChatConnection(ws) {
     console.log('[INFO] Chat WebSocket connected');
 
-    // Add to connected clients for project updates
-    connectedClients.add(ws);
-
-    // Add client to permission WebSocket handler
     const clientId = `client-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     ws.clientId = clientId;
-    permissionWebSocketHandler.addClient(ws, clientId);
+    connectedClients.set(clientId, { ws, sessionId: null, lastSeen: Date.now() });
 
     ws.on('message', async (message) => {
         try {
             const data = JSON.parse(message);
 
-            // Handle interaction response messages
             if (data.type === 'interaction-response') {
-                console.log('🔄 Received interaction response from client');
-                const clientId = ws.clientId || `client-${Date.now()}`;
-                permissionWebSocketHandler.handleInteractionResponse(clientId, data);
+                console.log('🔄 Received interaction response from client:', data.interactionId);
+                const interactionManager = getInteractionManager();
+                interactionManager.resolveInteraction(data.interactionId, data.response);
                 return;
             }
 
-            // Handle generic interaction sync request
             if (data.type === 'interaction-sync-request') {
                 console.log('🔄 Received interaction sync request for sessions:', data.sessionIds);
-                const clientId = ws.clientId || `client-${Date.now()}`;
                 const interactionManager = getInteractionManager();
-                permissionWebSocketHandler.handleInteractionSyncRequest(clientId, data, interactionManager);
+                const interactions = interactionManager.getPendingInteractions(data.sessionIds || []);
+                ws.send(JSON.stringify({
+                    type: 'interaction-sync-response',
+                    sessionIds: data.sessionIds,
+                    interactions
+                }));
                 return;
             }
 
@@ -832,9 +833,8 @@ function handleChatConnection(ws) {
     });
 
     ws.on('close', () => {
-        console.log('🔌 Chat client disconnected');
-        // Remove from connected clients
-        connectedClients.delete(ws);
+        console.log('🔌 Chat client disconnected:', ws.clientId);
+        connectedClients.delete(ws.clientId);
     });
 }
 
@@ -1601,28 +1601,24 @@ async function startServer() {
 
             const appInstallPath = path.join(__dirname, '..');
 
-            // Initialize permission WebSocket handler with the WebSocket server
-            permissionWebSocketHandler.initialize(wss);
-
-            // Get InteractionManager instance
             const interactionManager = getInteractionManager();
 
-            // Connect InteractionManager to WebSocket handler
             interactionManager.on('interaction-request', (interaction) => {
                 console.log(`🔄 Broadcasting ${interaction.type} interaction:`, interaction.id);
-                permissionWebSocketHandler.broadcastInteractionRequest(interaction);
+                broadcastToAll({
+                    type: 'interaction-request',
+                    interactionType: interaction.type,
+                    id: interaction.id,
+                    sessionId: interaction.sessionId,
+                    data: interaction.data,
+                    metadata: interaction.metadata,
+                    requestedAt: interaction.requestedAt
+                });
             });
 
-            // Listen for interaction responses from WebSocket handler
-            permissionWebSocketHandler.on('interaction-response', (response) => {
-                console.log('🔄 Received interaction response:', response.interactionId);
-                interactionManager.resolveInteraction(response.interactionId, response.response);
-            });
-
-            // Broadcast interaction resolution to ALL clients (for cross-tab sync)
             interactionManager.on('interaction-resolved', (data) => {
                 console.log('🔄 Broadcasting interaction-resolved:', data.interactionId);
-                permissionWebSocketHandler.broadcastToAll({
+                broadcastToAll({
                     type: 'interaction-resolved',
                     interactionId: data.interactionId,
                     sessionId: data.sessionId,
