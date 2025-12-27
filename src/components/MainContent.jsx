@@ -36,6 +36,7 @@ function MainContent({
   ws,
   sendMessage,
   messages,
+  setSessionId,     // Function to update current session ID for WebSocket message filtering
   isMobile,
   isPWA,
   onMenuClick,
@@ -471,31 +472,32 @@ function MainContent({
           <div className={`h-full ${activeTab === 'chat' ? 'block' : 'hidden'}`}>
             <ErrorBoundary showDetails={true}>
               <ChatInterface
-              selectedProject={selectedProject}
-              selectedSession={selectedSession}
-              ws={ws}
-              sendMessage={sendMessage}
-              messages={messages}
-              onFileOpen={handleFileOpen}
-              onInputFocusChange={onInputFocusChange}
-              onSessionActive={onSessionActive}
-              onSessionInactive={onSessionInactive}
-              onSessionProcessing={onSessionProcessing}
-              onSessionNotProcessing={onSessionNotProcessing}
-              processingSessions={processingSessions}
-              onReplaceTemporarySession={onReplaceTemporarySession}
-              onNavigateToSession={onNavigateToSession}
-              onShowSettings={onShowSettings}
-              autoExpandTools={autoExpandTools}
-              showRawParameters={showRawParameters}
-              showThinking={showThinking}
-              autoScrollToBottom={autoScrollToBottom}
-              sendByCtrlEnter={sendByCtrlEnter}
-              externalMessageUpdate={externalMessageUpdate}
-              onShowAllTasks={tasksEnabled ? () => setActiveTab('tasks') : null}
-            />
-          </ErrorBoundary>
-        </div>
+                selectedProject={selectedProject}
+                selectedSession={selectedSession}
+                ws={ws}
+                sendMessage={sendMessage}
+                messages={messages}
+                setSessionId={setSessionId}
+                onFileOpen={handleFileOpen}
+                onInputFocusChange={onInputFocusChange}
+                onSessionActive={onSessionActive}
+                onSessionInactive={onSessionInactive}
+                onSessionProcessing={onSessionProcessing}
+                onSessionNotProcessing={onSessionNotProcessing}
+                processingSessions={processingSessions}
+                onReplaceTemporarySession={onReplaceTemporarySession}
+                onNavigateToSession={onNavigateToSession}
+                onShowSettings={onShowSettings}
+                autoExpandTools={autoExpandTools}
+                showRawParameters={showRawParameters}
+                showThinking={showThinking}
+                autoScrollToBottom={autoScrollToBottom}
+                sendByCtrlEnter={sendByCtrlEnter}
+                externalMessageUpdate={externalMessageUpdate}
+                onShowAllTasks={tasksEnabled ? () => setActiveTab('tasks') : null}
+              />
+            </ErrorBoundary>
+          </div>
         {activeTab === 'files' && (
           <div className="h-full overflow-hidden">
             <FileTree selectedProject={selectedProject} />

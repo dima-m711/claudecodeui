@@ -5,7 +5,8 @@ const WebSocketContext = createContext({
   ws: null,
   sendMessage: () => {},
   messages: [],
-  isConnected: false
+  isConnected: false,
+  setSessionId: () => {}  // Function to update current session for message filtering
 });
 
 export const useWebSocketContext = () => {

@@ -1,14 +1,15 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 export function useWebSocket() {
   const [ws, setWs] = useState(null);
   const [messages, setMessages] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
   const reconnectTimeoutRef = useRef(null);
+  const currentSessionIdRef = useRef(null);
 
   useEffect(() => {
     connect();
-    
+
     return () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
@@ -17,7 +18,7 @@ export function useWebSocket() {
         ws.close();
       }
     };
-  }, []); // Keep dependency array but add proper cleanup
+  }, []);
 
   const connect = async () => {
     try {
@@ -52,7 +53,30 @@ export function useWebSocket() {
       websocket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          setMessages(prev => [...prev, data]);
+
+          const globalMessageTypes = [
+            'session-created',
+            'claude-complete',
+            'claude-error',
+            'token-budget',
+            'plan-execution-start',
+            'interaction-request',
+            'interaction-sync-response',
+            'interaction-resolved'
+          ];
+
+          const isGlobalMessage = globalMessageTypes.includes(data.type);
+
+          if (isGlobalMessage) {
+            setMessages(prev => [...prev, data]);
+          } else if (data.data?.session_id || data.sessionId) {
+            const messageSessionId = data.data?.session_id || data.sessionId;
+            if (messageSessionId === currentSessionIdRef.current) {
+              setMessages(prev => [...prev, data]);
+            }
+          } else {
+            setMessages(prev => [...prev, data]);
+          }
         } catch (error) {
           console.error('Error parsing WebSocket message:', error);
         }
@@ -61,8 +85,7 @@ export function useWebSocket() {
       websocket.onclose = () => {
         setIsConnected(false);
         setWs(null);
-        
-        // Attempt to reconnect after 3 seconds
+
         reconnectTimeoutRef.current = setTimeout(() => {
           connect();
         }, 3000);
@@ -85,10 +108,15 @@ export function useWebSocket() {
     }
   };
 
+  const setSessionId = useCallback((sessionId) => {
+    currentSessionIdRef.current = sessionId;
+  }, []);
+
   return {
     ws,
     sendMessage,
     messages,
-    isConnected
+    isConnected,
+    setSessionId
   };
 }

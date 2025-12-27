@@ -22,8 +22,13 @@ export default defineConfig(({ command, mode }) => {
         }
       }
     },
+    esbuild: {
+      sourcemap: true,
+    },
     build: {
       outDir: 'dist',
+      sourcemap: true,
+      minify: mode === 'production' ? 'esbuild' : false,
       chunkSizeWarningLimit: 1000,
       rollupOptions: {
         output: {

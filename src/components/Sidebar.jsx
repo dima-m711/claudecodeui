@@ -14,23 +14,24 @@ import ProjectCreationWizard from './ProjectCreationWizard';
 import { api } from '../utils/api';
 import { useTaskMaster } from '../contexts/TaskMasterContext';
 import { useTasksSettings } from '../contexts/TasksSettingsContext';
+import { useInteraction } from '../contexts/InteractionContext';
 
 // Move formatTimeAgo outside component to avoid recreation on every render
 const formatTimeAgo = (dateString, currentTime) => {
   const date = new Date(dateString);
   const now = currentTime;
-  
+
   // Check if date is valid
   if (isNaN(date.getTime())) {
     return 'Unknown';
   }
-  
+
   const diffInMs = now - date;
   const diffInSeconds = Math.floor(diffInMs / 1000);
   const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
   const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
   const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
-  
+
   if (diffInSeconds < 60) return 'Just now';
   if (diffInMinutes === 1) return '1 min ago';
   if (diffInMinutes < 60) return `${diffInMinutes} mins ago`;
@@ -81,7 +82,10 @@ function Sidebar({
   const { setCurrentProject, mcpServerStatus } = useTaskMaster();
   const { tasksEnabled } = useTasksSettings();
 
-  
+  // Interaction context for badge counts
+  const { getInteractionsBySession } = useInteraction();
+
+
   // Starred projects state - persisted in localStorage
   const [starredProjects, setStarredProjects] = useState(() => {
     try {
@@ -166,14 +170,14 @@ function Sidebar({
     };
 
     window.addEventListener('storage', handleStorageChange);
-    
+
     // Also check periodically when component is focused (for same-tab changes)
     const checkInterval = setInterval(() => {
       if (document.hasFocus()) {
         loadSortOrder();
       }
     }, 1000);
-    
+
     return () => {
       window.removeEventListener('storage', handleStorageChange);
       clearInterval(checkInterval);
@@ -205,7 +209,7 @@ function Sidebar({
       newStarred.add(projectName);
     }
     setStarredProjects(newStarred);
-    
+
     // Persist to localStorage
     try {
       localStorage.setItem('starredProjects', JSON.stringify([...newStarred]));
@@ -228,19 +232,29 @@ function Sidebar({
     return [...claudeSessions, ...cursorSessions].sort((a, b) => normalizeDate(b) - normalizeDate(a));
   };
 
+  // Helper function to get pending interaction count for a session
+  const getPendingPermissionCount = (sessionId) => {
+    if (!sessionId) return 0;
+
+    // Count all interaction types for this session
+    const interactionCount = getInteractionsBySession(sessionId).length;
+
+    return interactionCount;
+  };
+
   // Helper function to get the last activity date for a project
   const getProjectLastActivity = (project) => {
     const allSessions = getAllSessions(project);
     if (allSessions.length === 0) {
       return new Date(0); // Return epoch date for projects with no sessions
     }
-    
+
     // Find the most recent session activity
     const mostRecentDate = allSessions.reduce((latest, session) => {
       const sessionDate = new Date(session.lastActivity);
       return sessionDate > latest ? sessionDate : latest;
     }, new Date(0));
-    
+
     return mostRecentDate;
   };
 
@@ -248,11 +262,11 @@ function Sidebar({
   const sortedProjects = [...projects].sort((a, b) => {
     const aStarred = isProjectStarred(a.name);
     const bStarred = isProjectStarred(b.name);
-    
+
     // First, sort by starred status
     if (aStarred && !bStarred) return -1;
     if (!aStarred && bStarred) return 1;
-    
+
     // For projects with same starred status, sort by selected order
     if (projectSortOrder === 'date') {
       // Sort by most recent activity (descending)
@@ -292,7 +306,7 @@ function Sidebar({
     } catch (error) {
       console.error('Error renaming project:', error);
     }
-    
+
     setEditingProject(null);
     setEditingName('');
   };
@@ -357,19 +371,19 @@ function Sidebar({
     }
 
     setCreatingProject(true);
-    
+
     try {
       const response = await api.createProject(newProjectPath.trim());
 
       if (response.ok) {
         const result = await response.json();
-        
+
         // Save the path to recent paths before clearing
         saveToRecentPaths(newProjectPath.trim());
-        
+
         setShowNewProject(false);
         setNewProjectPath('');
-        
+
         // Refresh projects to show the new one
         if (window.refreshProjects) {
           window.refreshProjects();
@@ -396,7 +410,7 @@ function Sidebar({
   const loadMoreSessions = async (project) => {
     // Check if we can load more sessions
     const canLoadMore = project.sessionMeta?.hasMore !== false;
-    
+
     if (!canLoadMore || loadingSessions[project.name]) {
       return;
     }
@@ -406,10 +420,10 @@ function Sidebar({
     try {
       const currentSessionCount = (project.sessions?.length || 0) + (additionalSessions[project.name]?.length || 0);
       const response = await api.sessions(project.name, 5, currentSessionCount);
-      
+
       if (response.ok) {
         const result = await response.json();
-        
+
         // Store additional sessions locally
         setAdditionalSessions(prev => ({
           ...prev,
@@ -418,7 +432,7 @@ function Sidebar({
             ...result.sessions
           ]
         }));
-        
+
         // Update project metadata if needed
         if (result.hasMore === false) {
           // Mark that there are no more sessions to load
@@ -435,11 +449,11 @@ function Sidebar({
   // Filter projects based on search input
   const filteredProjects = sortedProjects.filter(project => {
     if (!searchFilter.trim()) return true;
-    
+
     const searchLower = searchFilter.toLowerCase();
     const displayName = (project.displayName || project.name).toLowerCase();
     const projectName = project.name.toLowerCase();
-    
+
     // Search in both display name and actual project name/path
     return displayName.includes(searchLower) || projectName.includes(searchLower);
   });
@@ -448,7 +462,7 @@ function Sidebar({
   const handleProjectSelect = (project) => {
     // Call the original project select handler
     onProjectSelect(project);
-    
+
     // Update TaskMaster context with the selected project
     setCurrentProject(project);
   };
@@ -523,7 +537,7 @@ function Sidebar({
             </Button>
           )}
         </div>
-        
+
         {/* Mobile Header */}
         <div
           className="md:hidden p-3 border-b border-border"
@@ -637,7 +651,7 @@ function Sidebar({
           )}
         </div>
       )}
-      
+
       {/* Projects List */}
       <ScrollArea className="flex-1 md:px-2 md:py-3 overflow-y-auto overscroll-contain">
         <div className="md:space-y-1 pb-safe-area-inset-bottom">
@@ -676,7 +690,7 @@ function Sidebar({
               const isExpanded = expandedProjects.has(project.name);
               const isSelected = selectedProject?.name === project.name;
               const isStarred = isProjectStarred(project.name);
-              
+
               return (
                 <div key={project.name} className="md:space-y-1">
                   {/* Project Header */}
@@ -789,8 +803,8 @@ function Sidebar({
                                 <button
                                   className={cn(
                                     "w-8 h-8 rounded-lg flex items-center justify-center active:scale-90 transition-all duration-150 border",
-                                    isStarred 
-                                      ? "bg-yellow-500/10 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-800" 
+                                    isStarred
+                                      ? "bg-yellow-500/10 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-800"
                                       : "bg-gray-500/10 dark:bg-gray-900/30 border-gray-200 dark:border-gray-800"
                                   )}
                                   onClick={(e) => {
@@ -802,8 +816,8 @@ function Sidebar({
                                 >
                                   <Star className={cn(
                                     "w-4 h-4 transition-colors",
-                                    isStarred 
-                                      ? "text-yellow-600 dark:text-yellow-400 fill-current" 
+                                    isStarred
+                                      ? "text-yellow-600 dark:text-yellow-400 fill-current"
                                       : "text-gray-600 dark:text-gray-400"
                                   )} />
                                 </button>
@@ -842,7 +856,7 @@ function Sidebar({
                         </div>
                       </div>
                     </div>
-                    
+
                     {/* Desktop Project Item */}
                     <Button
                       variant="ghost"
@@ -911,7 +925,7 @@ function Sidebar({
                           )}
                         </div>
                       </div>
-                      
+
                       <div className="flex items-center gap-1 flex-shrink-0">
                         {editingProject === project.name ? (
                           <>
@@ -940,8 +954,8 @@ function Sidebar({
                             <div
                               className={cn(
                                 "w-6 h-6 opacity-0 group-hover:opacity-100 transition-all duration-200 flex items-center justify-center rounded cursor-pointer touch:opacity-100",
-                                isStarred 
-                                  ? "hover:bg-yellow-50 dark:hover:bg-yellow-900/20 opacity-100" 
+                                isStarred
+                                  ? "hover:bg-yellow-50 dark:hover:bg-yellow-900/20 opacity-100"
                                   : "hover:bg-accent"
                               )}
                               onClick={(e) => {
@@ -952,8 +966,8 @@ function Sidebar({
                             >
                               <Star className={cn(
                                 "w-3 h-3 transition-colors",
-                                isStarred 
-                                  ? "text-yellow-600 dark:text-yellow-400 fill-current" 
+                                isStarred
+                                  ? "text-yellow-600 dark:text-yellow-400 fill-current"
                                   : "text-muted-foreground"
                               )} />
                             </div>
@@ -1014,17 +1028,17 @@ function Sidebar({
                         getAllSessions(project).map((session) => {
                           // Handle both Claude and Cursor session formats
                           const isCursorSession = session.__provider === 'cursor';
-                          
+
                           // Calculate if session is active (within last 10 minutes)
                           const sessionDate = new Date(isCursorSession ? session.createdAt : session.lastActivity);
                           const diffInMinutes = Math.floor((currentTime - sessionDate) / (1000 * 60));
                           const isActive = diffInMinutes < 10;
-                          
+
                           // Get session display values
                           const sessionName = isCursorSession ? (session.name || 'Untitled Session') : (session.summary || 'New Session');
                           const sessionTime = isCursorSession ? session.createdAt : session.lastActivity;
                           const messageCount = session.messageCount || 0;
-                          
+
                           return (
                           <div key={session.id} className="group relative">
                             {/* Active session indicator dot */}
@@ -1075,6 +1089,18 @@ function Sidebar({
                                           {messageCount}
                                         </Badge>
                                       )}
+                                      {getPendingPermissionCount(session.id) > 0 && (
+                                        <Badge
+                                          variant="default"
+                                          className={`text-xs px-1.5 py-0 ml-1 ${
+                                            selectedSession?.id === session.id
+                                              ? 'bg-blue-500 text-white animate-pulse'
+                                              : 'bg-amber-500 text-white'
+                                          }`}
+                                        >
+                                          {getPendingPermissionCount(session.id)}
+                                        </Badge>
+                                      )}
                                   {/* Provider tiny icon */}
                                   <span className="ml-1 opacity-70">
                                     {isCursorSession ? (
@@ -1101,7 +1127,7 @@ function Sidebar({
                                 </div>
                               </div>
                             </div>
-                            
+
                             {/* Desktop Session Item */}
                             <div className="hidden md:block">
                               <Button
@@ -1131,6 +1157,18 @@ function Sidebar({
                                       {messageCount > 0 && (
                                         <Badge variant="secondary" className="text-xs px-1 py-0 ml-auto">
                                           {messageCount}
+                                        </Badge>
+                                      )}
+                                      {getPendingPermissionCount(session.id) > 0 && (
+                                        <Badge
+                                          variant="default"
+                                          className={`text-xs px-1.5 py-0 ml-1 ${
+                                            selectedSession?.id === session.id
+                                              ? 'bg-blue-500 text-white animate-pulse'
+                                              : 'bg-amber-500 text-white'
+                                          }`}
+                                        >
+                                          {getPendingPermissionCount(session.id)}
                                         </Badge>
                                       )}
                                       {/* Provider tiny icon */}
@@ -1262,7 +1300,7 @@ function Sidebar({
                           )}
                         </Button>
                       )}
-                      
+
                       {/* New Session Button */}
                       <div className="md:hidden px-3 pb-2">
                         <button
@@ -1276,7 +1314,7 @@ function Sidebar({
                           New Session
                         </button>
                       </div>
-                      
+
                       <Button
                         variant="default"
                         size="sm"
@@ -1294,7 +1332,7 @@ function Sidebar({
           )}
         </div>
       </ScrollArea>
-      
+
       {/* Version Update Notification */}
       {updateAvailable && (
         <div className="md:p-2 border-t border-border/50 flex-shrink-0">
@@ -1319,7 +1357,7 @@ function Sidebar({
               </div>
             </Button>
           </div>
-          
+
           {/* Mobile Version Notification */}
           <div className="md:hidden p-3 pb-2">
             <button
@@ -1342,7 +1380,7 @@ function Sidebar({
           </div>
         </div>
       )}
-      
+
       {/* Settings Section */}
       <div className="md:p-2 md:border-t md:border-border flex-shrink-0">
         {/* Mobile Settings */}
@@ -1357,7 +1395,7 @@ function Sidebar({
             <span className="text-lg font-medium text-foreground">Settings</span>
           </button>
         </div>
-        
+
         {/* Desktop Settings */}
         <Button
           variant="ghost"

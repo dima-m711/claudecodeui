@@ -60,6 +60,8 @@ import mime from 'mime-types';
 import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions } from './claude-sdk.js';
 import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
+import { getInteractionManager } from './services/interactionManager.js';
+import { InteractionType, createSdkPermissionResult, PermissionDecision } from './services/interactionTypes.js';
 import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
 import mcpRoutes from './routes/mcp.js';
@@ -77,7 +79,20 @@ import { validateApiKey, authenticateToken, authenticateWebSocket } from './midd
 
 // File system watcher for projects folder
 let projectsWatcher = null;
-const connectedClients = new Set();
+const connectedClients = new Map();
+
+function broadcastToAll(message) {
+    const messageStr = typeof message === 'string' ? message : JSON.stringify(message);
+    connectedClients.forEach(({ ws }) => {
+        if (ws.readyState === WebSocket.OPEN) {
+            try {
+                ws.send(messageStr);
+            } catch (error) {
+                console.error('Failed to broadcast message:', error);
+            }
+        }
+    });
+}
 
 // Setup file system watcher for Claude projects folder using chokidar
 async function setupProjectsWatcher() {
@@ -124,18 +139,12 @@ async function setupProjectsWatcher() {
                     const updatedProjects = await getProjects();
 
                     // Notify all connected clients about the project changes
-                    const updateMessage = JSON.stringify({
+                    broadcastToAll({
                         type: 'projects_updated',
                         projects: updatedProjects,
                         timestamp: new Date().toISOString(),
                         changeType: eventType,
                         changedFile: path.relative(claudeProjectsPath, filePath)
-                    });
-
-                    connectedClients.forEach(client => {
-                        if (client.readyState === WebSocket.OPEN) {
-                            client.send(updateMessage);
-                        }
                     });
 
                 } catch (error) {
@@ -373,13 +382,13 @@ app.get('/api/projects/:projectName/sessions/:sessionId/messages', authenticateT
     try {
         const { projectName, sessionId } = req.params;
         const { limit, offset } = req.query;
-        
+
         // Parse limit and offset if provided
         const parsedLimit = limit ? parseInt(limit, 10) : null;
         const parsedOffset = offset ? parseInt(offset, 10) : 0;
-        
+
         const result = await getSessionMessages(projectName, sessionId, parsedLimit, parsedOffset);
-        
+
         // Handle both old and new response formats
         if (Array.isArray(result)) {
             // Backward compatibility: no pagination parameters were provided
@@ -447,32 +456,32 @@ app.post('/api/projects/create', authenticateToken, async (req, res) => {
 });
 
 // Browse filesystem endpoint for project suggestions - uses existing getFileTree
-app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {    
+app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
     try {
         const { path: dirPath } = req.query;
-        
+
         // Default to home directory if no path provided
         const homeDir = os.homedir();
         let targetPath = dirPath ? dirPath.replace('~', homeDir) : homeDir;
-        
+
         // Resolve and normalize the path
         targetPath = path.resolve(targetPath);
-        
+
         // Security check - ensure path is accessible
         try {
             await fs.promises.access(targetPath);
             const stats = await fs.promises.stat(targetPath);
-            
+
             if (!stats.isDirectory()) {
                 return res.status(400).json({ error: 'Path is not a directory' });
             }
         } catch (err) {
             return res.status(404).json({ error: 'Directory not accessible' });
         }
-        
+
         // Use existing getFileTree function with shallow depth (only direct children)
         const fileTree = await getFileTree(targetPath, 1, 0, false); // maxDepth=1, showHidden=false
-        
+
         // Filter only directories and format for suggestions
         const directories = fileTree
             .filter(item => item.type === 'directory')
@@ -482,24 +491,24 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
                 type: 'directory'
             }))
             .slice(0, 20); // Limit results
-            
+
         // Add common directories if browsing home directory
         const suggestions = [];
         if (targetPath === homeDir) {
             const commonDirs = ['Desktop', 'Documents', 'Projects', 'Development', 'Dev', 'Code', 'workspace'];
             const existingCommon = directories.filter(dir => commonDirs.includes(dir.name));
             const otherDirs = directories.filter(dir => !commonDirs.includes(dir.name));
-            
+
             suggestions.push(...existingCommon, ...otherDirs);
         } else {
             suggestions.push(...directories);
         }
-        
-        res.json({ 
+
+        res.json({
             path: targetPath,
-            suggestions: suggestions 
+            suggestions: suggestions
         });
-        
+
     } catch (error) {
         console.error('Error browsing filesystem:', error);
         res.status(500).json({ error: 'Failed to browse filesystem' });
@@ -706,17 +715,40 @@ wss.on('connection', (ws, request) => {
 function handleChatConnection(ws) {
     console.log('[INFO] Chat WebSocket connected');
 
-    // Add to connected clients for project updates
-    connectedClients.add(ws);
+    const clientId = `client-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    ws.clientId = clientId;
+    connectedClients.set(clientId, { ws, sessionId: null, lastSeen: Date.now() });
 
     ws.on('message', async (message) => {
         try {
             const data = JSON.parse(message);
 
+            if (data.type === 'interaction-response') {
+                console.log('🔄 Received interaction response from client:', data.interactionId);
+                const interactionManager = getInteractionManager();
+                interactionManager.resolveInteraction(data.interactionId, data.response);
+                return;
+            }
+
+            if (data.type === 'interaction-sync-request') {
+                console.log('🔄 Received interaction sync request for sessions:', data.sessionIds);
+                const interactionManager = getInteractionManager();
+                const interactions = interactionManager.getPendingInteractions(data.sessionIds || []);
+                ws.send(JSON.stringify({
+                    type: 'interaction-sync-response',
+                    sessionIds: data.sessionIds,
+                    interactions
+                }));
+                return;
+            }
+
             if (data.type === 'claude-command') {
                 console.log('[DEBUG] User message:', data.command || '[Continue/Resume]');
                 console.log('📁 Project:', data.options?.projectPath || 'Unknown');
                 console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
+                console.log('🔐 Permission Mode:', data.options?.permissionMode || 'UNDEFINED');
+                console.log('🔐 Skip Permissions:', data.options?.toolsSettings?.skipPermissions ?? 'UNDEFINED');
+                console.log('🌐 WebSocket State:', ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][ws.readyState] || 'UNKNOWN');
 
                 // Use Claude Agents SDK
                 await queryClaudeSDK(data.command, data.options, ws);
@@ -801,9 +833,8 @@ function handleChatConnection(ws) {
     });
 
     ws.on('close', () => {
-        console.log('🔌 Chat client disconnected');
-        // Remove from connected clients
-        connectedClients.delete(ws);
+        console.log('🔌 Chat client disconnected:', ws.clientId);
+        connectedClients.delete(ws.clientId);
     });
 }
 
@@ -1566,9 +1597,34 @@ async function startServer() {
         if (!isProduction) {
             console.log(`${c.warn('[WARN]')} Note: Requests will be proxied to Vite dev server at ${c.dim('http://localhost:' + (process.env.VITE_PORT || 5173))}`);
         }
-
         server.listen(PORT, '0.0.0.0', async () => {
+
             const appInstallPath = path.join(__dirname, '..');
+
+            const interactionManager = getInteractionManager();
+
+            interactionManager.on('interaction-request', (interaction) => {
+                console.log(`🔄 Broadcasting ${interaction.type} interaction:`, interaction.id);
+                broadcastToAll({
+                    type: 'interaction-request',
+                    interactionType: interaction.type,
+                    id: interaction.id,
+                    sessionId: interaction.sessionId,
+                    data: interaction.data,
+                    metadata: interaction.metadata,
+                    requestedAt: interaction.requestedAt
+                });
+            });
+
+            interactionManager.on('interaction-resolved', (data) => {
+                console.log('🔄 Broadcasting interaction-resolved:', data.interactionId);
+                broadcastToAll({
+                    type: 'interaction-resolved',
+                    interactionId: data.interactionId,
+                    sessionId: data.sessionId,
+                    resolvedAt: data.resolvedAt
+                });
+            });
 
             console.log('');
             console.log(c.dim('═'.repeat(63)));
