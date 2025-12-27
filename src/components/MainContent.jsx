@@ -26,7 +26,6 @@ import PRDEditor from './PRDEditor';
 import Tooltip from './Tooltip';
 import { useTaskMaster } from '../contexts/TaskMasterContext';
 import { useTasksSettings } from '../contexts/TasksSettingsContext';
-import { PermissionInstanceProvider } from '../contexts/PermissionInstanceContext';
 import { api } from '../utils/api';
 
 function MainContent({
@@ -472,8 +471,7 @@ function MainContent({
         <div className={`flex-1 flex flex-col min-h-0 overflow-hidden ${editingFile ? 'mr-0' : ''} ${editorExpanded ? 'hidden' : ''}`}>
           <div className={`h-full ${activeTab === 'chat' ? 'block' : 'hidden'}`}>
             <ErrorBoundary showDetails={true}>
-              <PermissionInstanceProvider sessionId={selectedSession?.id}>
-                <ChatInterface
+              <ChatInterface
                 selectedProject={selectedProject}
                 selectedSession={selectedSession}
                 ws={ws}
@@ -498,9 +496,8 @@ function MainContent({
                 externalMessageUpdate={externalMessageUpdate}
                 onShowAllTasks={tasksEnabled ? () => setActiveTab('tasks') : null}
               />
-              </PermissionInstanceProvider>
-          </ErrorBoundary>
-        </div>
+            </ErrorBoundary>
+          </div>
         {activeTab === 'files' && (
           <div className="h-full overflow-hidden">
             <FileTree selectedProject={selectedProject} />

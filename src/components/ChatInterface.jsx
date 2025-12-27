@@ -28,9 +28,6 @@ import CursorLogo from './CursorLogo.jsx';
 import NextTaskBanner from './NextTaskBanner.jsx';
 import PlanResultCard from './PlanResultCard';
 import { useTasksSettings } from '../contexts/TasksSettingsContext';
-import { PermissionInlineDialog } from './PermissionInlineDialog';
-import { usePermission } from '../contexts/PermissionContext';
-import usePermissions from '../hooks/usePermissions';
 import InteractionRenderer from './InteractionRenderer';
 import { useInteraction, INTERACTION_TYPES } from '../contexts/InteractionContext';
 import useInteractions from '../hooks/useInteractions';
@@ -1655,19 +1652,9 @@ const ImageAttachment = ({ file, onRemove, uploadProgress, error }) => {
 // This ensures uninterrupted chat experience by pausing sidebar refreshes during conversations.
 function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, messages, setSessionId, onFileOpen, onInputFocusChange, onSessionActive, onSessionInactive, onSessionProcessing, onSessionNotProcessing, processingSessions, onReplaceTemporarySession, onNavigateToSession, onShowSettings, autoExpandTools, showRawParameters, showThinking, autoScrollToBottom, sendByCtrlEnter, externalMessageUpdate, onTaskClick, onShowAllTasks }) {
   const { tasksEnabled, isTaskMasterInstalled } = useTasksSettings();
-  const { activeRequest } = usePermission();
-  const {
-    isDialogOpen,
-    currentRequest,
-    handleDialogDecision,
-    closeDialog,
-    sendPermissionResponse,
-    mockPermissionRequest
-  } = usePermissions();
 
   const {
     pendingInteractions,
-    getInteractionsByType,
     getInteractionById
   } = useInteraction();
 
@@ -1687,21 +1674,6 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
   }, [currentSessionId, selectedSession?.id]);
 
   const { sendInteractionResponse } = useInteractions(ws, sessionIds);
-
-  const planApprovalInteractions = useMemo(() =>
-    getInteractionsByType(INTERACTION_TYPES.PLAN_APPROVAL),
-    [getInteractionsByType, pendingInteractions]
-  );
-
-  const askUserInteractions = useMemo(() =>
-    getInteractionsByType(INTERACTION_TYPES.ASK_USER),
-    [getInteractionsByType, pendingInteractions]
-  );
-
-  const nonPermissionInteractions = useMemo(() =>
-    [...planApprovalInteractions, ...askUserInteractions],
-    [planApprovalInteractions, askUserInteractions]
-  );
 
   const handleInteractionResponse = useCallback((interactionId, response) => {
     const interaction = getInteractionById(interactionId);
@@ -4516,12 +4488,9 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
               );
             })}
 
-            <PermissionInlineDialog />
-
-            {/* Render plan approvals and ask-user interactions inline */}
-            {nonPermissionInteractions.length > 0 && (
+            {pendingInteractions.length > 0 && (
               <InteractionRenderer
-                interactions={nonPermissionInteractions}
+                interactions={pendingInteractions}
                 onResponse={handleInteractionResponse}
                 currentSessionId={currentSessionId}
               />
@@ -4886,45 +4855,6 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     </div>
 
 
-    {/* Permission Queue Indicator - DISABLED: Using inline PermissionInlineDialog instead */}
-    {/* <PermissionQueueIndicator /> */}
-
-    {/* Test buttons for development - Hidden by default, enable via VITE_SHOW_DEBUG_BUTTONS=true in .env */}
-    {import.meta.env.VITE_SHOW_DEBUG_BUTTONS === 'true' && (
-      <>
-        <button
-          onClick={() => {
-            console.log('🧪 [Test] Triggering mock permission request');
-            console.log('📊 [Test] Current permissions:', {
-              permanent: JSON.parse(localStorage.getItem('permanentPermissions') || '[]'),
-              session: 'See sessionPermissions Map in PermissionContext'
-            });
-            mockPermissionRequest('bash', 'execute');
-          }}
-          className="fixed bottom-20 left-4 px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg shadow-lg z-50"
-        >
-          Test Permission
-        </button>
-
-        <button
-          onClick={() => {
-            console.log('🧹 [Test] Clearing all permissions...');
-            console.log('📊 [Test] Before clear:', {
-              permanent: JSON.parse(localStorage.getItem('permanentPermissions') || '[]'),
-              history: JSON.parse(localStorage.getItem('permissionHistory') || '[]').length + ' entries'
-            });
-            localStorage.removeItem('permanentPermissions');
-            localStorage.removeItem('permissionHistory');
-            console.log('✅ [Test] Permissions cleared! Reloading page...');
-            setTimeout(() => window.location.reload(), 500);
-          }}
-          className="fixed bottom-20 left-40 px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg shadow-lg z-50"
-          title="Clear all session and permanent permissions, then reload"
-        >
-          Reset Permissions
-        </button>
-      </>
-    )}
     </>
   );
 }

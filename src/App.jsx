@@ -32,7 +32,6 @@ import { AuthProvider } from './contexts/AuthContext';
 import { TaskMasterProvider } from './contexts/TaskMasterContext';
 import { TasksSettingsProvider } from './contexts/TasksSettingsContext';
 import { WebSocketProvider, useWebSocketContext } from './contexts/WebSocketContext';
-import { PermissionProvider } from './contexts/PermissionContext';
 import { InteractionProvider } from './contexts/InteractionContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import { useVersionCheck } from './hooks/useVersionCheck';
@@ -946,16 +945,6 @@ function AppContent() {
   );
 }
 
-// Wrapper to provide sessionId to PermissionProvider
-function PermissionProviderWrapper({ children }) {
-  const { sessionId } = useParams();
-  return (
-    <PermissionProvider currentSessionId={sessionId}>
-      {children}
-    </PermissionProvider>
-  );
-}
-
 // Wrapper to provide sessionIds to InteractionProvider
 function InteractionProviderWrapper({ children }) {
   const { sessionId } = useParams();
@@ -973,16 +962,12 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={
         <InteractionProviderWrapper>
-          <PermissionProviderWrapper>
-            <AppContent />
-          </PermissionProviderWrapper>
+          <AppContent />
         </InteractionProviderWrapper>
       } />
       <Route path="/session/:sessionId" element={
         <InteractionProviderWrapper>
-          <PermissionProviderWrapper>
-            <AppContent />
-          </PermissionProviderWrapper>
+          <AppContent />
         </InteractionProviderWrapper>
       } />
     </Routes>
