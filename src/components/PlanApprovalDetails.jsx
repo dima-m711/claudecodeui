@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
+import Markdown from './Markdown';
 
 const PlanApprovalDetails = ({ interaction, onResponse, onDismiss }) => {
   const { data } = interaction;
@@ -48,7 +48,7 @@ const PlanApprovalDetails = ({ interaction, onResponse, onDismiss }) => {
           prose-headings:mt-4 prose-headings:mb-2
           prose-ul:pl-6 prose-ol:pl-6">
           {typeof planData === 'string' ? (
-            <ReactMarkdown>{planData}</ReactMarkdown>
+            <Markdown>{planData}</Markdown>
           ) : (
             <p className="text-sm text-gray-500 dark:text-gray-400">
               No plan data available

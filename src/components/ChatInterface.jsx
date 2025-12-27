@@ -26,6 +26,7 @@ import TodoList from './TodoList';
 import ClaudeLogo from './ClaudeLogo.jsx';
 import CursorLogo from './CursorLogo.jsx';
 import NextTaskBanner from './NextTaskBanner.jsx';
+import PlanResultCard from './PlanResultCard';
 import { useTasksSettings } from '../contexts/TasksSettingsContext';
 import { PermissionInlineDialog } from './PermissionInlineDialog';
 import { usePermission } from '../contexts/PermissionContext';
@@ -694,44 +695,9 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                     </details>
                   );
                 })()}
-                {message.toolInput && message.toolName === 'ExitPlanMode' && (() => {
-                  // Special handling for ExitPlanMode - render plan in beautiful card
-                  try {
-                    const input = JSON.parse(message.toolInput);
-                    if (input.plan) {
-                      const planContent = input.plan;
-                      return (
-                        <div className="relative mt-3">
-                          <div className="bg-gradient-to-br from-blue-50/50 to-indigo-50/50 dark:from-blue-950/30 dark:to-indigo-950/30 rounded-lg p-6 border border-blue-200/50 dark:border-blue-800/50">
-                            <div className="flex items-center gap-3 mb-4 pb-3 border-b border-blue-200/50 dark:border-blue-800/50">
-                              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 dark:from-blue-400 dark:to-indigo-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
-                                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                                </svg>
-                              </div>
-                              <span className="text-lg font-semibold text-blue-900 dark:text-blue-100">Implementation Plan</span>
-                            </div>
-                            <Markdown className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-blue-900 dark:prose-headings:text-blue-100 prose-p:text-gray-700 dark:prose-p:text-gray-300 prose-li:text-gray-700 dark:prose-li:text-gray-300 prose-strong:text-blue-800 dark:prose-strong:text-blue-200">
-                              {planContent}
-                            </Markdown>
-                          </div>
-
-                          {/* Approval message - dialog will handle actual approval */}
-                          <div className="flex items-center gap-2 mt-4 p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-sm text-blue-800 dark:text-blue-200">
-                            <svg className="w-5 h-5 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <span className="font-medium">Awaiting your approval...</span>
-                          </div>
-                        </div>
-                      );
-                    }
-                  } catch (e) {
-                    // Fall back to raw display if parsing fails
-                    console.error('Error parsing ExitPlanMode input:', e);
-                  }
-                  return null;
-                })()}
+                {message.toolName === 'ExitPlanMode' && (
+                  <PlanResultCard message={message} />
+                )}
                 {message.toolInput && message.toolName !== 'Edit' && message.toolName !== 'ExitPlanMode' && (() => {
                   // Debug log to see what we're dealing with
 
