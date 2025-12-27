@@ -60,10 +60,8 @@ import mime from 'mime-types';
 import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions } from './claude-sdk.js';
 import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
-import { getPermissionManager } from './services/permissionManager.js';
-import { getPlanApprovalManager } from './services/planApprovalManager.js';
 import { getInteractionManager } from './services/interactionManager.js';
-import { setupConsoleApproval } from './services/consoleApproval.js';
+import { InteractionType, createSdkPermissionResult, PermissionDecision } from './services/interactionTypes.js';
 import PermissionWebSocketHandler from './services/permissionWebSocketHandler.js';
 import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
@@ -726,32 +724,7 @@ function handleChatConnection(ws) {
         try {
             const data = JSON.parse(message);
 
-            // Handle permission response messages
-            if (data.type === 'permission-response') {
-                console.log('📨 Received permission response from client');
-                const clientId = ws.clientId || `client-${Date.now()}`;
-                permissionWebSocketHandler.handlePermissionResponse(clientId, data);
-                return;
-            }
-
-            // Handle permission sync request (after page refresh)
-            if (data.type === 'permission-sync-request') {
-                console.log('🔄 Received permission sync request for session:', data.sessionId);
-                const clientId = ws.clientId || `client-${Date.now()}`;
-                const permissionManager = getPermissionManager();
-                permissionWebSocketHandler.handlePermissionSyncRequest(clientId, data, permissionManager);
-                return;
-            }
-
-            // Handle plan approval response messages
-            if (data.type === 'plan-approval-response') {
-                console.log('📋 Received plan approval response from client');
-                const clientId = ws.clientId || `client-${Date.now()}`;
-                permissionWebSocketHandler.handlePlanApprovalResponse(clientId, data);
-                return;
-            }
-
-            // Handle generic interaction response messages
+            // Handle interaction response messages
             if (data.type === 'interaction-response') {
                 console.log('🔄 Received interaction response from client');
                 const clientId = ws.clientId || `client-${Date.now()}`;
@@ -847,23 +820,6 @@ function handleChatConnection(ws) {
                 ws.send(JSON.stringify({
                     type: 'active-sessions',
                     sessions: activeSessions
-                }));
-            } else if (data.type === 'permission-response') {
-                // Handle permission response from frontend
-                console.log('[DEBUG] Permission response:', data.requestId, data.decision);
-
-                const permissionManager = getPermissionManager();
-                const success = permissionManager.resolveRequest(
-                    data.requestId,
-                    data.decision,
-                    data.updatedInput
-                );
-
-                // Send acknowledgment back to frontend
-                ws.send(JSON.stringify({
-                    type: 'permission-response-ack',
-                    requestId: data.requestId,
-                    success
                 }));
             }
         } catch (error) {
@@ -1648,10 +1604,8 @@ async function startServer() {
             // Initialize permission WebSocket handler with the WebSocket server
             permissionWebSocketHandler.initialize(wss);
 
-            // Get manager instances
+            // Get InteractionManager instance
             const interactionManager = getInteractionManager();
-            const permissionManager = getPermissionManager();
-            const planApprovalManager = getPlanApprovalManager();
 
             // Connect InteractionManager to WebSocket handler
             interactionManager.on('interaction-request', (interaction) => {
@@ -1676,37 +1630,6 @@ async function startServer() {
                 });
             });
 
-            // Backward compatibility: Keep legacy permission event handlers
-            permissionManager.on('permission-request', (request) => {
-                console.log('🔐 [Legacy] Broadcasting permission request:', request.id);
-                permissionWebSocketHandler.broadcastPermissionRequest(request);
-            });
-
-            permissionWebSocketHandler.on('permission-response', (response) => {
-                console.log('📝 [Legacy] Received permission response:', response);
-                const success = permissionManager.resolveRequest(
-                    response.requestId,
-                    response.decision,
-                    response.updatedInput
-                );
-                console.log('🔍 [Legacy] resolveRequest returned:', success);
-            });
-
-            // Backward compatibility: Keep legacy plan approval event handlers
-            planApprovalManager.on('plan-request', (request) => {
-                console.log('📋 [Legacy] Broadcasting plan approval request:', request.planId);
-                permissionWebSocketHandler.broadcastPlanApprovalRequest(request);
-            });
-
-            permissionWebSocketHandler.on('plan-approval-response', (response) => {
-                console.log('📋 [Legacy] Received plan approval response:', response);
-                if (response.decision === 'approve') {
-                    planApprovalManager.resolvePlanApproval(response.planId, response.permissionMode);
-                } else {
-                    planApprovalManager.rejectPlanApproval(response.planId, response.reason || 'Plan rejected by user');
-                }
-            });
-
             console.log('');
             console.log(c.dim('═'.repeat(63)));
             console.log(`  ${c.bright('Claude Code UI Server - Ready')}`);
@@ -1719,9 +1642,6 @@ async function startServer() {
 
             // Start watching the projects folder for changes
             await setupProjectsWatcher();
-
-            // Initialize console approval for testing (if enabled)
-            setupConsoleApproval(permissionManager);
         });
     } catch (error) {
         console.error('[ERROR] Failed to start server:', error);

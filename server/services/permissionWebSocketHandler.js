@@ -1,17 +1,7 @@
 import { EventEmitter } from 'events';
 import {
-  WS_MESSAGE_TYPES,
-  createPermissionRequestMessage,
-  createPermissionTimeoutMessage,
-  createPermissionQueueStatusMessage,
-  createPermissionCancelledMessage,
-  createPermissionErrorMessage,
-  validatePermissionResponse
-} from './permissionTypes.js';
-import {
   WS_INTERACTION_MESSAGES,
   createInteractionRequestMessage,
-  createInteractionResponseMessage,
   validateInteractionResponse
 } from './interactionTypes.js';
 
@@ -67,7 +57,6 @@ class PermissionWebSocketHandler extends EventEmitter {
     });
 
     this.sendQueuedMessages(clientId);
-    this.sendQueueStatus();
   }
 
   /**
@@ -85,243 +74,7 @@ class PermissionWebSocketHandler extends EventEmitter {
   }
 
   /**
-   * Broadcast a permission request to all connected clients
-   */
-  broadcastPermissionRequest(request) {
-    const message = createPermissionRequestMessage(request);
-    message.sequenceNumber = ++this.sequenceNumber;
-
-    const messageStr = JSON.stringify(message);
-
-    this.clients.forEach((client, clientId) => {
-      if (client.ws.readyState === client.ws.OPEN) {
-        try {
-          client.ws.send(messageStr);
-          client.pendingRequests.add(request.id);
-        } catch (error) {
-          console.error(`Failed to send permission request to client ${clientId}:`, error);
-          this.queueMessage(clientId, message);
-        }
-      } else {
-        this.queueMessage(clientId, message);
-      }
-    });
-
-    if (this.clients.size === 0) {
-      console.warn('No clients connected to receive permission request');
-      this.emit('no-clients', request);
-    }
-  }
-
-  /**
-   * Handle a permission response from a client
-   */
-  handlePermissionResponse(clientId, message, permissionManager = null) {
-    try {
-      validatePermissionResponse(message);
-
-      const client = this.clients.get(clientId);
-      if (!client) {
-        console.warn(`Permission response from unknown client: ${clientId}`);
-        return;
-      }
-
-      // Verify the client actually has this request pending
-      if (!client.pendingRequests.has(message.requestId)) {
-        console.warn(`Client ${clientId} sent response for non-pending request: ${message.requestId}`);
-        this.sendError(clientId, message.requestId, 'Request not found in your pending queue');
-        return;
-      }
-
-      // If permissionManager provided, verify session ownership
-      if (permissionManager) {
-        const request = permissionManager.pendingRequests.get(message.requestId);
-        if (request && request.sessionId && client.sessionId && request.sessionId !== client.sessionId) {
-          console.warn(`Client ${clientId} attempted to respond to request from different session`);
-          this.sendError(clientId, message.requestId, 'Unauthorized: session mismatch');
-          return;
-        }
-      }
-
-      client.pendingRequests.delete(message.requestId);
-
-      this.emit('permission-response', {
-        clientId,
-        requestId: message.requestId,
-        decision: message.decision,
-        updatedInput: message.updatedInput
-      });
-
-      this.sendQueueStatus();
-    } catch (error) {
-      console.error('Invalid permission response:', error);
-      this.sendError(clientId, message.requestId, error.message);
-    }
-  }
-
-  /**
-   * Handle a permission sync request from a client (after page refresh)
-   */
-  handlePermissionSyncRequest(clientId, message, permissionManager) {
-    const { sessionId } = message;
-    if (!sessionId) {
-      console.warn('Permission sync request missing sessionId');
-      return;
-    }
-
-    console.log(`🔄 [WebSocket] Permission sync request for session: ${sessionId}`);
-
-    const requests = permissionManager.getRequestsForSession(sessionId);
-    const formattedRequests = requests.map(r => ({
-      requestId: r.id,
-      toolName: r.toolName,
-      input: r.input,
-      timestamp: r.timestamp,
-      sessionId: r.sessionId
-    }));
-
-    const client = this.clients.get(clientId);
-    if (client?.ws?.readyState === client.ws.OPEN) {
-      // Add synced requests to client's pending set so they can be responded to
-      formattedRequests.forEach(req => {
-        client.pendingRequests.add(req.requestId);
-      });
-
-      const response = {
-        type: 'permission-sync-response',
-        sessionId,
-        pendingRequests: formattedRequests
-      };
-      console.log(`🔄 [WebSocket] Sending sync response with ${formattedRequests.length} requests`);
-      console.log(`🔄 [WebSocket] Added ${formattedRequests.length} requests to client pendingRequests`);
-      client.ws.send(JSON.stringify(response));
-    }
-  }
-
-  /**
-   * Broadcast a timeout notification
-   */
-  broadcastPermissionTimeout(requestId, toolName) {
-    const message = createPermissionTimeoutMessage(requestId, toolName);
-    this.broadcastToAll(message);
-
-    this.clients.forEach(client => {
-      client.pendingRequests.delete(requestId);
-    });
-  }
-
-  /**
-   * Broadcast a cancellation notification
-   */
-  broadcastPermissionCancelled(requestId, reason) {
-    const message = createPermissionCancelledMessage(requestId, reason);
-    this.broadcastToAll(message);
-
-    this.clients.forEach(client => {
-      client.pendingRequests.delete(requestId);
-    });
-  }
-
-  /**
-   * Broadcast a plan approval request to all connected clients
-   */
-  broadcastPlanApprovalRequest(planRequest) {
-    const message = {
-      type: 'plan-approval-request',
-      planId: planRequest.planId,
-      content: planRequest.content,
-      sessionId: planRequest.sessionId,
-      timestamp: planRequest.timestamp,
-      expiresAt: planRequest.expiresAt
-    };
-    message.sequenceNumber = ++this.sequenceNumber;
-
-    console.log(`📋 [WebSocket] Broadcasting plan approval request ${planRequest.planId}`);
-
-    this.broadcastToAll(message);
-
-    if (this.clients.size === 0) {
-      console.warn('No clients connected to receive plan approval request');
-      this.emit('no-clients', planRequest);
-    }
-  }
-
-  /**
-   * Handle a plan approval response from a client
-   */
-  handlePlanApprovalResponse(clientId, message) {
-    console.log(`📋 [WebSocket] Received plan approval response from client ${clientId}:`, {
-      planId: message.planId,
-      decision: message.decision,
-      permissionMode: message.permissionMode
-    });
-
-    this.emit('plan-approval-response', {
-      clientId,
-      planId: message.planId,
-      decision: message.decision,
-      permissionMode: message.permissionMode,
-      reason: message.reason
-    });
-  }
-
-  /**
-   * Handle a plan approval sync request from a client (after page refresh)
-   */
-  handlePlanApprovalSyncRequest(clientId, message, planApprovalManager) {
-    const { sessionIds } = message;
-    if (!sessionIds || !Array.isArray(sessionIds)) {
-      console.warn('Plan approval sync request missing sessionIds');
-      return;
-    }
-
-    console.log(`🔄 [WebSocket] Plan approval sync request for sessions: ${sessionIds.join(', ')}`);
-
-    const approvals = planApprovalManager.getPendingApprovals(sessionIds);
-
-    const client = this.clients.get(clientId);
-    if (client?.ws?.readyState === client.ws.OPEN) {
-      const response = {
-        type: 'plan-approval-sync-response',
-        approvals
-      };
-      console.log(`🔄 [WebSocket] Sending plan approval sync response with ${approvals.length} approvals`);
-      client.ws.send(JSON.stringify(response));
-    }
-  }
-
-  /**
-   * Send plan approval decision acknowledgment to client
-   */
-  sendPlanApprovalAck(planId, success, error = null) {
-    const message = {
-      type: 'plan-approval-decision-ack',
-      planId,
-      success,
-      error,
-      timestamp: Date.now()
-    };
-
-    this.broadcastToAll(message);
-  }
-
-  /**
-   * Broadcast a plan approval timeout notification
-   */
-  broadcastPlanApprovalTimeout(planId) {
-    const message = {
-      type: 'plan-approval-timeout',
-      planId,
-      timestamp: Date.now()
-    };
-
-    console.log(`⏱️  [WebSocket] Broadcasting plan approval timeout for ${planId}`);
-
-    this.broadcastToAll(message);
-  }
-
-  /**
-   * Broadcast a generic interaction request to all connected clients
+   * Broadcast an interaction request to all connected clients
    */
   broadcastInteractionRequest(interaction) {
     const message = createInteractionRequestMessage(interaction);
@@ -393,25 +146,17 @@ class PermissionWebSocketHandler extends EventEmitter {
   }
 
   /**
-   * Send queue status update to all clients
-   */
-  sendQueueStatus() {
-    const pending = Array.from(this.clients.values()).reduce(
-      (sum, client) => sum + client.pendingRequests.size,
-      0
-    );
-
-    const message = createPermissionQueueStatusMessage(pending, 0);
-    this.broadcastToAll(message);
-  }
-
-  /**
    * Send an error message to a specific client
    */
-  sendError(clientId, requestId, error) {
+  sendError(clientId, interactionId, error) {
     const client = this.clients.get(clientId);
     if (client && client.ws.readyState === client.ws.OPEN) {
-      const message = createPermissionErrorMessage(requestId, error);
+      const message = {
+        type: 'interaction-error',
+        interactionId,
+        error,
+        timestamp: Date.now()
+      };
       try {
         client.ws.send(JSON.stringify(message));
       } catch (err) {

@@ -17,9 +17,14 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
-import { getPermissionManager } from './services/permissionManager.js';
-import { getPlanApprovalManager } from './services/planApprovalManager.js';
-import { getAskUserHandler } from './services/askUserHandler.js';
+import { getInteractionManager } from './services/interactionManager.js';
+import {
+  InteractionType,
+  createSdkPermissionResult,
+  TOOL_RISK_LEVELS,
+  TOOL_CATEGORIES,
+  RiskLevel
+} from './services/interactionTypes.js';
 
 // Session tracking: Map of session IDs to active query instances
 const activeSessions = new Map();
@@ -27,13 +32,24 @@ const activeSessions = new Map();
 async function handleAskUserQuestionTool(input, sessionIdRef) {
   console.log('❓ [SDK] AskUserQuestion tool called');
   try {
-    const askUserHandler = getAskUserHandler();
+    const interactionManager = getInteractionManager();
     const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
-    const answers = await askUserHandler.askUser(input.questions || [input], currentSessionId);
-    console.log('✅ [SDK] Got user answers:', answers);
+
+    const response = await interactionManager.requestInteraction({
+      type: InteractionType.ASK_USER,
+      sessionId: currentSessionId,
+      data: {
+        questions: input.questions || [input]
+      },
+      metadata: {
+        toolName: 'AskUserQuestion'
+      }
+    });
+
+    console.log('✅ [SDK] Got user answers:', response.answers);
     return {
       behavior: 'allow',
-      updatedInput: { ...input, answers }
+      updatedInput: { ...input, answers: response.answers }
     };
   } catch (error) {
     console.error('❌ [SDK] AskUserQuestion failed:', error.message);
@@ -48,23 +64,30 @@ async function handleExitPlanModeTool(input, sessionIdRef, runtimeState) {
   console.log('📋 [SDK] ExitPlanMode detected in canUseTool');
 
   try {
-    const planApprovalManager = getPlanApprovalManager();
+    const interactionManager = getInteractionManager();
     const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
 
-    const approvalResult = await planApprovalManager.requestPlanApproval(
-      input.plan || input,
-      currentSessionId
-    );
+    const response = await interactionManager.requestInteraction({
+      type: InteractionType.PLAN_APPROVAL,
+      sessionId: currentSessionId,
+      data: {
+        plan: input.plan || input
+      },
+      metadata: {
+        toolName: 'ExitPlanMode'
+      }
+    });
 
-    console.log(`✅ [SDK] Plan approved with mode: ${approvalResult.permissionMode} ${runtimeState.permissionMode}`);
-    runtimeState.permissionMode = approvalResult.permissionMode;
+    const permissionMode = response.permissionMode || 'default';
+    console.log(`✅ [SDK] Plan approved with mode: ${permissionMode} ${runtimeState.permissionMode}`);
+    runtimeState.permissionMode = permissionMode;
 
     return {
       behavior: 'allow',
       updatedInput: input,
       updatedPermissions: [{
         type: 'setMode',
-        mode: approvalResult.permissionMode,
+        mode: permissionMode,
         destination: 'session'
       }]
     };
@@ -117,10 +140,35 @@ async function handleDefaultPermissionMode(toolName, input, requestId, ws, sessi
       return { behavior: 'deny', message: 'No WebSocket connection available' };
     }
 
-    const permissionManager = getPermissionManager();
+    const interactionManager = getInteractionManager();
     const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
     console.log(`🔐 Permission request ${requestId} using sessionId:`, currentSessionId);
-    const result = await permissionManager.addRequest(requestId, toolName, input, currentSessionId, abortSignal, suggestions);
+
+    const riskLevel = TOOL_RISK_LEVELS[toolName] || RiskLevel.HIGH;
+    const category = TOOL_CATEGORIES[toolName] || 'other';
+
+    const response = await interactionManager.requestInteraction({
+      type: InteractionType.PERMISSION,
+      sessionId: currentSessionId,
+      data: {
+        toolName,
+        input,
+        suggestions: suggestions || []
+      },
+      metadata: {
+        requestId,
+        riskLevel,
+        category
+      }
+    });
+
+    const result = createSdkPermissionResult(
+      response.decision,
+      response.updatedInput,
+      response.suggestions || suggestions,
+      response.message,
+      response.interrupt
+    );
 
     console.log(`🔐 Permission ${requestId} resolved: ${result.behavior}`);
     console.log(`✅ [SDK] Returning result to SDK:`, JSON.stringify(result));
