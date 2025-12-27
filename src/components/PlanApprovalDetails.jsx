@@ -5,6 +5,10 @@ const PlanApprovalDetails = ({ interaction, onResponse, onDismiss }) => {
   const { data } = interaction;
   const { planData } = data || {};
 
+  console.log('📋 [PlanApprovalDetails] interaction:', interaction);
+  console.log('📋 [PlanApprovalDetails] data:', data);
+  console.log('📋 [PlanApprovalDetails] planData:', planData);
+
   const [permissionMode, setPermissionMode] = useState('default');
 
   const handleApprove = () => {

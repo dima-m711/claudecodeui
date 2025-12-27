@@ -62,16 +62,21 @@ async function handleAskUserQuestionTool(input, sessionIdRef) {
 
 async function handleExitPlanModeTool(input, sessionIdRef, runtimeState) {
   console.log('📋 [SDK] ExitPlanMode detected in canUseTool');
+  console.log('📋 [SDK] ExitPlanMode input:', JSON.stringify(input, null, 2).substring(0, 500));
 
   try {
     const interactionManager = getInteractionManager();
     const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
 
+    const planContent = input.plan || input;
+    console.log('📋 [SDK] Plan content type:', typeof planContent);
+    console.log('📋 [SDK] Plan content preview:', typeof planContent === 'string' ? planContent.substring(0, 200) : JSON.stringify(planContent).substring(0, 200));
+
     const response = await interactionManager.requestInteraction({
       type: InteractionType.PLAN_APPROVAL,
       sessionId: currentSessionId,
       data: {
-        plan: input.plan || input
+        planData: planContent
       },
       metadata: {
         toolName: 'ExitPlanMode'

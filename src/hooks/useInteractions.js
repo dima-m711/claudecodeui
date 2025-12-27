@@ -17,6 +17,7 @@ export function useInteractions(ws, sessionIds = []) {
 
         if (data.type === 'interaction-request') {
           console.log('🔄 [WebSocket] Received interaction request:', data.interactionType, data.id);
+          console.log('🔄 [WebSocket] Interaction data received:', data.data);
 
           const interaction = {
             id: data.id,

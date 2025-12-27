@@ -81,6 +81,7 @@ class PermissionWebSocketHandler extends EventEmitter {
     message.sequenceNumber = ++this.sequenceNumber;
 
     console.log(`🔄 [WebSocket] Broadcasting ${interaction.type} interaction ${interaction.id}`);
+    console.log(`🔄 [WebSocket] Interaction data:`, JSON.stringify(interaction.data, null, 2));
 
     this.broadcastToAll(message);
 
