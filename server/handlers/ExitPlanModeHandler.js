@@ -22,6 +22,13 @@ export class ExitPlanModeHandler {
         }
       });
 
+      if (response.cancelled) {
+        return {
+          behavior: 'deny',
+          message: 'Plan rejected by user'
+        };
+      }
+
       const permissionMode = response.permissionMode || 'default';
       runtimeState.permissionMode = permissionMode;
 
