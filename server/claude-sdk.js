@@ -25,211 +25,34 @@ import {
   TOOL_CATEGORIES,
   RiskLevel
 } from './services/interactionTypes.js';
+import { AskUserQuestionHandler } from './handlers/AskUserQuestionHandler.js';
+import { ExitPlanModeHandler } from './handlers/ExitPlanModeHandler.js';
+import { PermissionManager } from './services/PermissionManager.js';
 
-// Session tracking: Map of session IDs to active query instances
 const activeSessions = new Map();
 
-async function handleAskUserQuestionTool(input, sessionIdRef) {
-  console.log('❓ [SDK] AskUserQuestion tool called');
-  try {
-    const interactionManager = getInteractionManager();
-    const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
-
-    const response = await interactionManager.requestInteraction({
-      type: InteractionType.ASK_USER,
-      sessionId: currentSessionId,
-      data: {
-        questions: input.questions || [input]
-      },
-      metadata: {
-        toolName: 'AskUserQuestion'
-      }
-    });
-
-    console.log('✅ [SDK] Got user answers:', response.answers);
-    return {
-      behavior: 'allow',
-      updatedInput: { ...input, answers: response.answers }
-    };
-  } catch (error) {
-    console.error('❌ [SDK] AskUserQuestion failed:', error.message);
-    return {
-      behavior: 'deny',
-      message: error.message || 'AskUserQuestion failed'
-    };
-  }
-}
-
-async function handleExitPlanModeTool(input, sessionIdRef, runtimeState) {
-  console.log('📋 [SDK] ExitPlanMode detected in canUseTool');
-  console.log('📋 [SDK] ExitPlanMode input:', JSON.stringify(input, null, 2).substring(0, 500));
-
-  try {
-    const interactionManager = getInteractionManager();
-    const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
-
-    const planContent = input.plan || input;
-    console.log('📋 [SDK] Plan content type:', typeof planContent);
-    console.log('📋 [SDK] Plan content preview:', typeof planContent === 'string' ? planContent.substring(0, 200) : JSON.stringify(planContent).substring(0, 200));
-
-    const response = await interactionManager.requestInteraction({
-      type: InteractionType.PLAN_APPROVAL,
-      sessionId: currentSessionId,
-      data: {
-        planData: planContent
-      },
-      metadata: {
-        toolName: 'ExitPlanMode'
-      }
-    });
-
-    const permissionMode = response.permissionMode || 'default';
-    console.log(`✅ [SDK] Plan approved with mode: ${permissionMode} ${runtimeState.permissionMode}`);
-    runtimeState.permissionMode = permissionMode;
-
-    return {
-      behavior: 'allow',
-      updatedInput: input,
-      updatedPermissions: [{
-        type: 'setMode',
-        mode: permissionMode,
-        destination: 'session'
-      }]
-    };
-  } catch (error) {
-    console.error('❌ [SDK] Plan approval failed:', error.message);
-    return {
-      behavior: 'deny',
-      message: `Plan rejected: ${error.message}`,
-      interrupt: false
-    };
-  }
-}
-
-async function handleAcceptEditsMode(toolName, input) {
-  const autoAllowTools = ['Read', 'Write', 'Edit'];
-  if (autoAllowTools.includes(toolName)) {
-    console.log(`✅ Auto-allowing ${toolName} in acceptEdits mode`);
-    return { behavior: 'allow', updatedInput: input };
-  }
-  return null;
-}
-
-async function handlePlanMode(toolName, input) {
-  const planModeTools = [
-    'Read',
-    'Glob',
-    'Grep',
-    'Task',
-    'ExitPlanMode',
-    'TodoRead',
-    'TodoWrite',
-    'AskUserQuestion'
-  ];
-  if (!planModeTools.includes(toolName)) {
-    console.log(`❌ Denying ${toolName} in plan mode (not in allowed list)`);
-    return { behavior: 'deny', message: `${toolName} not allowed in plan mode` };
-  }
-  return null;
-}
-
-async function handleDefaultPermissionMode(toolName, input, requestId, ws, sessionIdRef, abortSignal, suggestions) {
-  console.log(`🔐 Permission request ${requestId} for tool: ${toolName}`);
-  if (process.env.DEBUG && process.env.DEBUG.includes('permissions')) {
-    console.log(`   Input: ${JSON.stringify(input).substring(0, 200)}...`);
-  }
-
-  try {
-    if (!ws || ws.readyState !== 1) {
-      console.warn('⚠️ No WebSocket connection, auto-denying permission');
-      return { behavior: 'deny', message: 'No WebSocket connection available' };
-    }
-
-    const interactionManager = getInteractionManager();
-    const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
-    console.log(`🔐 Permission request ${requestId} using sessionId:`, currentSessionId);
-
-    const riskLevel = TOOL_RISK_LEVELS[toolName] || RiskLevel.HIGH;
-    const category = TOOL_CATEGORIES[toolName] || 'other';
-
-    const response = await interactionManager.requestInteraction({
-      type: InteractionType.PERMISSION,
-      sessionId: currentSessionId,
-      data: {
-        toolName,
-        input,
-        suggestions: suggestions || []
-      },
-      metadata: {
-        requestId,
-        riskLevel,
-        category
-      }
-    });
-
-    const result = createSdkPermissionResult(
-      response.decision,
-      response.updatedInput,
-      response.suggestions || suggestions,
-      response.message,
-      response.interrupt
-    );
-
-    console.log(`🔐 Permission ${requestId} resolved: ${result.behavior}`);
-    console.log(`✅ [SDK] Returning result to SDK:`, JSON.stringify(result));
-    return result;
-
-  } catch (error) {
-    console.error(`❌ Permission request ${requestId} error:`, error.message);
-    return { behavior: 'deny', message: error.message || 'Permission request failed' };
-  }
-}
-
 function createCanUseToolHandler(runtimeState, ws, sessionIdRef) {
+  const interactionManager = getInteractionManager();
+  const askUserHandler = new AskUserQuestionHandler(interactionManager);
+  const exitPlanHandler = new ExitPlanModeHandler(interactionManager);
+  const permissionManager = new PermissionManager(interactionManager);
+
   return async (toolName, input, options) => {
     const abortSignal = options?.signal || options;
     const suggestions = options?.suggestions;
     const toolUseID = options?.toolUseID;
 
-    console.log('🔧 [SDK] canUseTool called with:', {
-      toolName: toolName,
-      toolNameType: typeof toolName,
-      input: input ? Object.keys(input) : 'none',
-      inputType: typeof input,
-      hasAbortSignal: !!abortSignal,
-      hasSuggestions: !!suggestions,
-      suggestionsCount: suggestions?.length || 0,
-      currentPermissionMode: runtimeState.permissionMode
-    });
-
-    const requestId = crypto.randomUUID();
-
     switch (toolName) {
       case 'AskUserQuestion':
-        return await handleAskUserQuestionTool(input, sessionIdRef);
+        return await askUserHandler.handle(input, sessionIdRef);
 
       case 'ExitPlanMode':
-        return await handleExitPlanModeTool(input, sessionIdRef, runtimeState);
+        return await exitPlanHandler.handle(input, sessionIdRef, runtimeState);
 
-      default: {
-        switch (runtimeState.permissionMode) {
-          case 'acceptEdits': {
-            const result = await handleAcceptEditsMode(toolName, input);
-            if (result) return result;
-            break;
-          }
-
-          case 'plan': {
-            const result = await handlePlanMode(toolName, input);
-            if (result) return result;
-            break;
-          }
-        }
-
-        return await handleDefaultPermissionMode(
-          toolName, input, requestId, ws, sessionIdRef, abortSignal, suggestions
+      default:
+        return await permissionManager.checkPermission(
+          toolName, input, runtimeState, ws, sessionIdRef, abortSignal, suggestions
         );
-      }
     }
   };
 }
@@ -244,16 +67,7 @@ function createCanUseToolHandler(runtimeState, ws, sessionIdRef) {
 function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
   const { sessionId, cwd, toolsSettings, permissionMode, images } = options;
 
-  // Create mutable runtime state for permission mode (can be updated after plan approval)
   const runtimeState = { permissionMode: permissionMode || 'default' };
-
-  console.log('🔍 [SDK] Mapping CLI options to SDK:', {
-    permissionMode: runtimeState.permissionMode,
-    hasWebSocket: !!ws,
-    wsReadyState: ws ? ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][ws.readyState] : 'NO_WS',
-    skipPermissions: toolsSettings?.skipPermissions ?? 'UNDEFINED',
-    sessionId: sessionId || 'NEW_SESSION'
-  });
 
   const sdkOptions = {};
 
@@ -276,8 +90,6 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
 
   // Handle tool permissions
   if (settings.skipPermissions && runtimeState.permissionMode !== 'plan') {
-    // When skipping permissions, use bypassPermissions mode
-    console.log('⚠️  [SDK] skipPermissions=true, overriding permissionMode to bypassPermissions');
     sdkOptions.permissionMode = 'bypassPermissions';
     runtimeState.permissionMode = 'bypassPermissions';
   } else {
@@ -316,7 +128,6 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
   // Map model (default to sonnet)
   // Valid models: sonnet, opus, haiku, opusplan, sonnet[1m]
   sdkOptions.model = options.model || 'sonnet';
-  console.log(`🤖 Using model: ${sdkOptions.model}`);
 
   // Map system prompt configuration
   sdkOptions.systemPrompt = {
@@ -336,16 +147,7 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
   // Add canUseTool callback for permission handling
   // Only if not in bypassPermissions mode
   if (runtimeState.permissionMode !== 'bypassPermissions' && ws) {
-    console.log('✅ [SDK] Attaching canUseTool callback for interactive permissions');
     sdkOptions.canUseTool = createCanUseToolHandler(runtimeState, ws, sessionIdRef);
-  } else {
-    console.log('⚠️  [SDK] NOT attaching canUseTool callback');
-    console.log('    Reason:', {
-      permissionMode: permissionMode || 'UNDEFINED',
-      isBypassMode: permissionMode === 'bypassPermissions',
-      hasWebSocket: !!ws,
-      wsReadyState: ws ? ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][ws.readyState] : 'NO_WS'
-    });
   }
 
   return { sdkOptions, runtimeState };
@@ -423,21 +225,14 @@ function extractTokenBudget(resultMessage) {
     return null;
   }
 
-  // Use cumulative tokens if available (tracks total for the session)
-  // Otherwise fall back to per-request tokens
   const inputTokens = modelData.cumulativeInputTokens || modelData.inputTokens || 0;
   const outputTokens = modelData.cumulativeOutputTokens || modelData.outputTokens || 0;
   const cacheReadTokens = modelData.cumulativeCacheReadInputTokens || modelData.cacheReadInputTokens || 0;
   const cacheCreationTokens = modelData.cumulativeCacheCreationInputTokens || modelData.cacheCreationInputTokens || 0;
 
-  // Total used = input + output + cache tokens
   const totalUsed = inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens;
 
-  // Use configured context window budget from environment (default 160000)
-  // This is the user's budget limit, not the model's context window
   const contextWindow = parseInt(process.env.CONTEXT_WINDOW) || 160000;
-
-  console.log(`📊 Token calculation: input=${inputTokens}, output=${outputTokens}, cache=${cacheReadTokens + cacheCreationTokens}, total=${totalUsed}/${contextWindow}`);
 
   return {
     used: totalUsed,
@@ -493,7 +288,6 @@ async function handleImages(command, images, cwd) {
       modifiedCommand = command + imageNote;
     }
 
-    console.log(`📸 Processed ${tempImagePaths.length} images to temp directory: ${tempDir}`);
     return { modifiedCommand, tempImagePaths, tempDir };
   } catch (error) {
     console.error('Error processing images for SDK:', error);
@@ -526,7 +320,6 @@ async function cleanupTempFiles(tempImagePaths, tempDir) {
       );
     }
 
-    console.log(`🧹 Cleaned up ${tempImagePaths.length} temp image files`);
   } catch (error) {
     console.error('Error during temp file cleanup:', error);
   }
@@ -545,8 +338,6 @@ async function loadMcpConfig(cwd) {
     try {
       await fs.access(claudeConfigPath);
     } catch (error) {
-      // File doesn't exist, return null
-      console.log('📡 No ~/.claude.json found, proceeding without MCP servers');
       return null;
     }
 
@@ -556,38 +347,30 @@ async function loadMcpConfig(cwd) {
       const configContent = await fs.readFile(claudeConfigPath, 'utf8');
       claudeConfig = JSON.parse(configContent);
     } catch (error) {
-      console.error('❌ Failed to parse ~/.claude.json:', error.message);
+      console.error('Failed to parse ~/.claude.json:', error.message);
       return null;
     }
 
-    // Extract MCP servers (merge global and project-specific)
     let mcpServers = {};
 
-    // Add global MCP servers
     if (claudeConfig.mcpServers && typeof claudeConfig.mcpServers === 'object') {
       mcpServers = { ...claudeConfig.mcpServers };
-      console.log(`📡 Loaded ${Object.keys(mcpServers).length} global MCP servers`);
     }
 
-    // Add/override with project-specific MCP servers
     if (claudeConfig.claudeProjects && cwd) {
       const projectConfig = claudeConfig.claudeProjects[cwd];
       if (projectConfig && projectConfig.mcpServers && typeof projectConfig.mcpServers === 'object') {
         mcpServers = { ...mcpServers, ...projectConfig.mcpServers };
-        console.log(`📡 Loaded ${Object.keys(projectConfig.mcpServers).length} project-specific MCP servers`);
       }
     }
 
-    // Return null if no servers found
     if (Object.keys(mcpServers).length === 0) {
-      console.log('📡 No MCP servers configured');
       return null;
     }
 
-    console.log(`✅ Total MCP servers loaded: ${Object.keys(mcpServers).length}`);
     return mcpServers;
   } catch (error) {
-    console.error('❌ Error loading MCP config:', error.message);
+    console.error('Error loading MCP config:', error.message);
     return null;
   }
 }
@@ -636,63 +419,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir);
     }
 
-    // Process streaming messages
-    console.log('🔄 Starting async generator loop for session:', capturedSessionId || 'NEW');
     for await (const message of queryInstance) {
-      // Log message type for debugging
-      if (message.type) {
-        console.log(`📨 [SDK] Received message type: ${message.type}`);
-
-        // Log tool-related messages for debugging
-        if (message.type === 'user' && message.content) {
-          const toolResults = message.content.filter(c => c.type === 'tool_result');
-          if (toolResults.length > 0) {
-            console.log(`🔧 [SDK] Tool results:`, toolResults.map(tr => ({
-              tool_use_id: tr.tool_use_id,
-              is_error: tr.is_error,
-              content_preview: JSON.stringify(tr.content).substring(0, 200)
-            })));
-          }
-        }
-
-        // Log assistant messages for debugging
-        if (message.type === 'assistant') {
-          // SDK messages have structure: message.message.content (not message.content)
-          const content = message.message?.content || message.content;
-
-          if (content && Array.isArray(content)) {
-            const hasToolUse = content.some(c => c.type === 'tool_use');
-            const hasText = content.some(c => c.type === 'text');
-            console.log(`🤖 [SDK] Assistant message:`, {
-              hasToolUse,
-              hasText,
-              contentTypes: content.map(c => c.type),
-              textPreview: content.find(c => c.type === 'text')?.text?.substring(0, 100)
-            });
-
-            // 🔍 DEBUG: Extensive logging for ExitPlanMode detection
-            console.log('🔍 [DEBUG] Message structure:', {
-              type: message.type,
-              hasMessage: !!message.message,
-              hasContent: !!content,
-              isArray: Array.isArray(content),
-              contentLength: Array.isArray(content) ? content.length : 'N/A',
-              contentTypes: Array.isArray(content)
-                ? content.map(c => ({ type: c.type, name: c.name, id: c.id }))
-                : 'N/A',
-              rawContentPreview: JSON.stringify(message).substring(0, 500)
-            });
-
-            // Note: ExitPlanMode plan approval now handled in canUseTool callback
-            // No need for duplicate handling here
-          } else {
-            console.log(`🤖 [SDK] Assistant message (no content):`, {
-              hasContent: !!message.content,
-              messageKeys: Object.keys(message).join(', ')
-            });
-          }
-        }
-      }
 
       // Capture session ID from first message
       if (message.session_id && !capturedSessionId) {
@@ -713,8 +440,6 @@ async function queryClaudeSDK(command, options = {}, ws) {
             type: 'session-created',
             sessionId: capturedSessionId
           }));
-        } else {
-          console.log('⚠️ Not sending session-created. sessionId:', sessionId, 'sessionCreatedSent:', sessionCreatedSent);
         }
       }
 
@@ -728,10 +453,8 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
       // Extract and send token budget updates from result messages
       if (message.type === 'result') {
-        console.log('🏁 [SDK] Received result message, conversation should be complete');
         const tokenBudget = extractTokenBudget(message);
         if (tokenBudget) {
-          console.log('📊 Token budget from modelUsage:', tokenBudget);
           ws.send(JSON.stringify({
             type: 'token-budget',
             data: tokenBudget
@@ -739,8 +462,6 @@ async function queryClaudeSDK(command, options = {}, ws) {
         }
       }
     }
-
-    console.log('🔄 [SDK] Generator loop completed');
 
     // Normal completion path
     if (capturedSessionId) {
@@ -751,14 +472,12 @@ async function queryClaudeSDK(command, options = {}, ws) {
     await cleanupTempFiles(tempImagePaths, tempDir);
 
     // Send completion event
-    console.log('✅ Streaming complete, sending claude-complete event');
     ws.send(JSON.stringify({
       type: 'claude-complete',
       sessionId: capturedSessionId,
       exitCode: 0,
       isNewSession: !sessionId && !!command
     }));
-    console.log('📤 claude-complete event sent');
 
   } catch (error) {
     console.error('SDK query error:', error);
@@ -795,7 +514,6 @@ async function abortClaudeSDKSession(sessionId) {
   }
 
   try {
-    console.log(`🛑 Aborting SDK session: ${sessionId}`);
 
     // Call interrupt() on the query instance
     await session.instance.interrupt();

@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import { randomUUID } from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -56,6 +57,8 @@ import { spawn } from 'child_process';
 import pty from 'node-pty';
 import fetch from 'node-fetch';
 import mime from 'mime-types';
+import { LRUCache } from 'lru-cache';
+import { z } from 'zod';
 
 import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions } from './claude-sdk.js';
@@ -77,9 +80,95 @@ import userRoutes from './routes/user.js';
 import { initializeDatabase } from './database/db.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 
-// File system watcher for projects folder
 let projectsWatcher = null;
-const connectedClients = new Map();
+const connectedClients = new LRUCache({
+    max: 10000,
+    ttl: 1000 * 60 * 60,
+    updateAgeOnGet: true,
+    dispose: (clientId, client) => {
+        console.log(`Evicting inactive client ${clientId}`);
+        if (client.ws && client.ws.readyState === WebSocket.OPEN) {
+            client.ws.close();
+        }
+    }
+});
+
+const MAX_MESSAGE_SIZE = 1024 * 1024;
+
+const InteractionResponseSchema = z.object({
+    type: z.literal('interaction-response'),
+    interactionId: z.string().uuid(),
+    response: z.record(z.unknown())
+});
+
+const InteractionSyncRequestSchema = z.object({
+    type: z.literal('interaction-sync-request'),
+    sessionIds: z.array(z.string()).optional()
+});
+
+const ClaudeCommandSchema = z.object({
+    type: z.literal('claude-command'),
+    command: z.string().optional(),
+    options: z.object({
+        projectPath: z.string().optional(),
+        sessionId: z.string().optional(),
+        permissionMode: z.string().optional(),
+        toolsSettings: z.object({
+            skipPermissions: z.boolean().optional()
+        }).optional()
+    }).optional()
+});
+
+const CursorCommandSchema = z.object({
+    type: z.literal('cursor-command'),
+    command: z.string().optional(),
+    options: z.object({
+        cwd: z.string().optional(),
+        sessionId: z.string().optional(),
+        model: z.string().optional()
+    }).optional()
+});
+
+const CursorResumeSchema = z.object({
+    type: z.literal('cursor-resume'),
+    sessionId: z.string(),
+    options: z.object({
+        cwd: z.string().optional()
+    }).optional()
+});
+
+const AbortSessionSchema = z.object({
+    type: z.literal('abort-session'),
+    sessionId: z.string(),
+    provider: z.enum(['claude', 'cursor']).optional()
+});
+
+const CursorAbortSchema = z.object({
+    type: z.literal('cursor-abort'),
+    sessionId: z.string()
+});
+
+const CheckSessionStatusSchema = z.object({
+    type: z.literal('check-session-status'),
+    sessionId: z.string(),
+    provider: z.enum(['claude', 'cursor']).optional()
+});
+
+const GetActiveSessionsSchema = z.object({
+    type: z.literal('get-active-sessions')
+});
+
+const WebSocketMessageSchema = z.discriminatedUnion('type', [
+    InteractionResponseSchema,
+    InteractionSyncRequestSchema,
+    ClaudeCommandSchema,
+    CursorCommandSchema,
+    CursorResumeSchema,
+    AbortSessionSchema,
+    CursorAbortSchema,
+    CheckSessionStatusSchema,
+    GetActiveSessionsSchema
+]);
 
 function broadcastToAll(message) {
     const messageStr = typeof message === 'string' ? message : JSON.stringify(message);
@@ -715,23 +804,76 @@ wss.on('connection', (ws, request) => {
 function handleChatConnection(ws) {
     console.log('[INFO] Chat WebSocket connected');
 
-    const clientId = `client-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const clientId = randomUUID();
     ws.clientId = clientId;
     connectedClients.set(clientId, { ws, sessionId: null, lastSeen: Date.now() });
 
-    ws.on('message', async (message) => {
+    ws.on('message', async (messageBuffer) => {
         try {
-            const data = JSON.parse(message);
+            const client = connectedClients.get(ws.clientId);
+            if (client) {
+                client.lastSeen = Date.now();
+                connectedClients.set(ws.clientId, client);
+            }
+
+            if (messageBuffer.length > MAX_MESSAGE_SIZE) {
+                console.error('[ERROR] Message too large:', messageBuffer.length, 'bytes');
+                ws.send(JSON.stringify({
+                    type: 'error',
+                    error: 'MESSAGE_TOO_LARGE',
+                    details: `Message size ${messageBuffer.length} bytes exceeds maximum allowed size of ${MAX_MESSAGE_SIZE} bytes`
+                }));
+                return;
+            }
+
+            const messageStr = messageBuffer.toString('utf8');
+            const rawData = JSON.parse(messageStr);
+
+            const validationResult = WebSocketMessageSchema.safeParse(rawData);
+            if (!validationResult.success) {
+                console.error('[ERROR] Invalid WebSocket message:', validationResult.error.flatten());
+                ws.send(JSON.stringify({
+                    type: 'error',
+                    error: 'INVALID_MESSAGE',
+                    details: validationResult.error.flatten()
+                }));
+                return;
+            }
+
+            const data = validationResult.data;
 
             if (data.type === 'interaction-response') {
-                console.log('🔄 Received interaction response from client:', data.interactionId);
                 const interactionManager = getInteractionManager();
-                interactionManager.resolveInteraction(data.interactionId, data.response);
+
+                const interaction = interactionManager.pendingInteractions.get(data.interactionId);
+                if (!interaction) {
+                    console.warn(`Interaction ${data.interactionId} not found`);
+                    ws.send(JSON.stringify({
+                        type: 'interaction-error',
+                        interactionId: data.interactionId,
+                        error: 'INTERACTION_NOT_FOUND'
+                    }));
+                    return;
+                }
+
+                const result = interactionManager.resolveInteraction(
+                    data.interactionId,
+                    data.response,
+                    interaction.sessionId
+                );
+
+                if (!result.success) {
+                    console.error(`Failed to resolve interaction ${data.interactionId}:`, result.error);
+                    ws.send(JSON.stringify({
+                        type: 'interaction-error',
+                        interactionId: data.interactionId,
+                        error: result.error
+                    }));
+                }
                 return;
             }
 
             if (data.type === 'interaction-sync-request') {
-                console.log('🔄 Received interaction sync request for sessions:', data.sessionIds);
                 const interactionManager = getInteractionManager();
                 const interactions = interactionManager.getPendingInteractions(data.sessionIds || []);
                 ws.send(JSON.stringify({
@@ -743,20 +885,8 @@ function handleChatConnection(ws) {
             }
 
             if (data.type === 'claude-command') {
-                console.log('[DEBUG] User message:', data.command || '[Continue/Resume]');
-                console.log('📁 Project:', data.options?.projectPath || 'Unknown');
-                console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
-                console.log('🔐 Permission Mode:', data.options?.permissionMode || 'UNDEFINED');
-                console.log('🔐 Skip Permissions:', data.options?.toolsSettings?.skipPermissions ?? 'UNDEFINED');
-                console.log('🌐 WebSocket State:', ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][ws.readyState] || 'UNKNOWN');
-
-                // Use Claude Agents SDK
                 await queryClaudeSDK(data.command, data.options, ws);
             } else if (data.type === 'cursor-command') {
-                console.log('[DEBUG] Cursor message:', data.command || '[Continue/Resume]');
-                console.log('📁 Project:', data.options?.cwd || 'Unknown');
-                console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
-                console.log('🤖 Model:', data.options?.model || 'default');
                 await spawnCursor(data.command, data.options, ws);
             } else if (data.type === 'cursor-resume') {
                 // Backward compatibility: treat as cursor-command with resume and no prompt
@@ -825,22 +955,20 @@ function handleChatConnection(ws) {
             }
         } catch (error) {
             console.error('[ERROR] Chat WebSocket error:', error.message);
-            ws.send(JSON.stringify({
+            const errorResponse = {
                 type: 'error',
-                error: error.message
-            }));
+                error: error.name === 'SyntaxError' ? 'INVALID_JSON' : error.message
+            };
+            ws.send(JSON.stringify(errorResponse));
         }
     });
 
     ws.on('close', () => {
-        console.log('🔌 Chat client disconnected:', ws.clientId);
         connectedClients.delete(ws.clientId);
     });
 }
 
-// Handle shell WebSocket connections
 function handleShellConnection(ws) {
-    console.log('🐚 Shell client connected');
     let shellProcess = null;
     let ptySessionKey = null;
     let outputBuffer = [];
@@ -848,7 +976,6 @@ function handleShellConnection(ws) {
     ws.on('message', async (message) => {
         try {
             const data = JSON.parse(message);
-            console.log('📨 Shell message received:', data.type);
 
             if (data.type === 'init') {
                 const projectPath = data.projectPath || process.cwd();
@@ -871,11 +998,9 @@ function handleShellConnection(ws) {
                     : '';
                 ptySessionKey = `${projectPath}_${sessionId || 'default'}${commandSuffix}`;
 
-                // Kill any existing login session before starting fresh
                 if (isLoginCommand) {
                     const oldSession = ptySessionsMap.get(ptySessionKey);
                     if (oldSession) {
-                        console.log('🧹 Cleaning up existing login session:', ptySessionKey);
                         if (oldSession.timeoutId) clearTimeout(oldSession.timeoutId);
                         if (oldSession.pty && oldSession.pty.kill) oldSession.pty.kill();
                         ptySessionsMap.delete(ptySessionKey);
@@ -884,7 +1009,6 @@ function handleShellConnection(ws) {
 
                 const existingSession = isLoginCommand ? null : ptySessionsMap.get(ptySessionKey);
                 if (existingSession) {
-                    console.log('♻️  Reconnecting to existing PTY session:', ptySessionKey);
                     shellProcess = existingSession.pty;
 
                     clearTimeout(existingSession.timeoutId);
@@ -910,11 +1034,6 @@ function handleShellConnection(ws) {
                 }
 
                 console.log('[INFO] Starting shell in:', projectPath);
-                console.log('📋 Session info:', hasSession ? `Resume session ${sessionId}` : (isPlainShell ? 'Plain shell mode' : 'New session'));
-                console.log('🤖 Provider:', isPlainShell ? 'plain-shell' : provider);
-                if (initialCommand) {
-                    console.log('⚡ Initial command:', initialCommand);
-                }
 
                 // First send a welcome message
                 let welcomeMsg;
@@ -1124,16 +1243,12 @@ function handleShellConnection(ws) {
     });
 
     ws.on('close', () => {
-        console.log('🔌 Shell client disconnected');
-
         if (ptySessionKey) {
             const session = ptySessionsMap.get(ptySessionKey);
             if (session) {
-                console.log('⏳ PTY session kept alive, will timeout in 30 minutes:', ptySessionKey);
                 session.ws = null;
 
                 session.timeoutId = setTimeout(() => {
-                    console.log('⏰ PTY session timeout, killing process:', ptySessionKey);
                     if (session.pty && session.pty.kill) {
                         session.pty.kill();
                     }
@@ -1604,7 +1719,6 @@ async function startServer() {
             const interactionManager = getInteractionManager();
 
             interactionManager.on('interaction-request', (interaction) => {
-                console.log(`🔄 Broadcasting ${interaction.type} interaction:`, interaction.id);
                 broadcastToAll({
                     type: 'interaction-request',
                     interactionType: interaction.type,
@@ -1617,7 +1731,6 @@ async function startServer() {
             });
 
             interactionManager.on('interaction-resolved', (data) => {
-                console.log('🔄 Broadcasting interaction-resolved:', data.interactionId);
                 broadcastToAll({
                     type: 'interaction-resolved',
                     interactionId: data.interactionId,

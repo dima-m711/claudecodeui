@@ -1,7 +1,8 @@
 import { EventEmitter } from 'events';
 import crypto from 'crypto';
+import { LRUCache } from 'lru-cache';
 
-const DEFAULT_CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const DEFAULT_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const MAX_INTERACTIONS_PER_SESSION = 100;
 
 export class InteractionManager extends EventEmitter {
@@ -9,7 +10,20 @@ export class InteractionManager extends EventEmitter {
     super();
 
     this.pendingInteractions = new Map();
-    this.interactionsBySession = new Map();
+    this.interactionsBySession = new LRUCache({
+      max: 1000,
+      ttl: 1000 * 60 * 15,
+      updateAgeOnGet: true,
+      dispose: (sessionId, interactions) => {
+        console.log(`Pruning session ${sessionId} with ${interactions.size} interactions`);
+        interactions.forEach(interactionId => {
+          const interaction = this.pendingInteractions.get(interactionId);
+          if (interaction && interaction.status === 'pending') {
+            this.rejectInteraction(interactionId, 'Session expired (TTL)');
+          }
+        });
+      }
+    });
     this.statistics = new Map();
 
     this.cleanupInterval = setInterval(() => {
@@ -17,10 +31,6 @@ export class InteractionManager extends EventEmitter {
     }, DEFAULT_CLEANUP_INTERVAL_MS);
 
     this.debugMode = process.env.DEBUG && process.env.DEBUG.includes('interactions');
-
-    if (this.debugMode) {
-      console.log('🔄 InteractionManager initialized in debug mode');
-    }
   }
 
   async requestInteraction({ type, sessionId, data, metadata = {} }) {
@@ -59,7 +69,9 @@ export class InteractionManager extends EventEmitter {
         if (!this.interactionsBySession.has(sessionId)) {
           this.interactionsBySession.set(sessionId, new Set());
         }
-        this.interactionsBySession.get(sessionId).add(interactionId);
+        const sessionInteractionsSet = this.interactionsBySession.get(sessionId);
+        sessionInteractionsSet.add(interactionId);
+        this.interactionsBySession.set(sessionId, sessionInteractionsSet);
       }
 
       if (!this.statistics.has(type)) {
@@ -82,12 +94,29 @@ export class InteractionManager extends EventEmitter {
     });
   }
 
-  resolveInteraction(interactionId, response) {
+  resolveInteraction(interactionId, response, requestingSessionId) {
     const interaction = this.pendingInteractions.get(interactionId);
 
     if (!interaction || interaction.status !== 'pending') {
-      console.warn(`⚠️ Interaction ${interactionId} not found or already resolved`);
+      console.warn(`Interaction ${interactionId} not found or already resolved`);
       return { success: false, error: 'invalid_or_decided' };
+    }
+
+    if (interaction.sessionId !== requestingSessionId) {
+      console.error(`Session mismatch: ${requestingSessionId} tried to resolve ${interactionId} owned by ${interaction.sessionId}`);
+      return { success: false, error: 'SESSION_MISMATCH' };
+    }
+
+    this.pendingInteractions.delete(interactionId);
+
+    if (interaction.sessionId && this.interactionsBySession.has(interaction.sessionId)) {
+      const sessionInteractionsSet = this.interactionsBySession.get(interaction.sessionId);
+      sessionInteractionsSet.delete(interactionId);
+      if (sessionInteractionsSet.size === 0) {
+        this.interactionsBySession.delete(interaction.sessionId);
+      } else {
+        this.interactionsBySession.set(interaction.sessionId, sessionInteractionsSet);
+      }
     }
 
     if (this.debugMode) {
@@ -98,18 +127,15 @@ export class InteractionManager extends EventEmitter {
     interaction.response = response;
     interaction.decidedAt = Date.now();
 
-    this.statistics.get(interaction.type).resolved++;
-
-    this.pendingInteractions.delete(interactionId);
-
-    if (interaction.sessionId && this.interactionsBySession.has(interaction.sessionId)) {
-      this.interactionsBySession.get(interaction.sessionId).delete(interactionId);
-      if (this.interactionsBySession.get(interaction.sessionId).size === 0) {
-        this.interactionsBySession.delete(interaction.sessionId);
-      }
+    if (this.statistics.has(interaction.type)) {
+      this.statistics.get(interaction.type).resolved++;
     }
 
-    interaction.resolve(response);
+    try {
+      interaction.resolve(response);
+    } catch (error) {
+      console.error(`Failed to resolve interaction ${interactionId}:`, error);
+    }
 
     this.emit('interaction-resolved', {
       interactionId,
@@ -124,8 +150,20 @@ export class InteractionManager extends EventEmitter {
     const interaction = this.pendingInteractions.get(interactionId);
 
     if (!interaction || interaction.status !== 'pending') {
-      console.warn(`⚠️ Interaction ${interactionId} not found or already resolved`);
+      console.warn(`Interaction ${interactionId} not found or already resolved`);
       return { success: false, error: 'invalid_or_decided' };
+    }
+
+    this.pendingInteractions.delete(interactionId);
+
+    if (interaction.sessionId && this.interactionsBySession.has(interaction.sessionId)) {
+      const sessionInteractionsSet = this.interactionsBySession.get(interaction.sessionId);
+      sessionInteractionsSet.delete(interactionId);
+      if (sessionInteractionsSet.size === 0) {
+        this.interactionsBySession.delete(interaction.sessionId);
+      } else {
+        this.interactionsBySession.set(interaction.sessionId, sessionInteractionsSet);
+      }
     }
 
     if (this.debugMode) {
@@ -135,18 +173,15 @@ export class InteractionManager extends EventEmitter {
     interaction.status = 'rejected';
     interaction.decidedAt = Date.now();
 
-    this.statistics.get(interaction.type).rejected++;
-
-    this.pendingInteractions.delete(interactionId);
-
-    if (interaction.sessionId && this.interactionsBySession.has(interaction.sessionId)) {
-      this.interactionsBySession.get(interaction.sessionId).delete(interactionId);
-      if (this.interactionsBySession.get(interaction.sessionId).size === 0) {
-        this.interactionsBySession.delete(interaction.sessionId);
-      }
+    if (this.statistics.has(interaction.type)) {
+      this.statistics.get(interaction.type).rejected++;
     }
 
-    interaction.reject(new Error(reason));
+    try {
+      interaction.reject(new Error(reason));
+    } catch (error) {
+      console.error(`Failed to reject interaction ${interactionId}:`, error);
+    }
 
     return { success: true };
   }
@@ -248,8 +283,6 @@ export class InteractionManager extends EventEmitter {
 
     this.pendingInteractions.clear();
     this.interactionsBySession.clear();
-
-    console.log('🔄 InteractionManager shut down');
   }
 }
 
