@@ -111,8 +111,12 @@ const ClaudeCommandSchema = z.object({
     command: z.string().nullish(),
     options: z.object({
         projectPath: z.string().nullish(),
+        cwd: z.string().nullish(),
         sessionId: z.string().nullish(),
+        resume: z.boolean().nullish(),
         permissionMode: z.string().nullish(),
+        model: z.string().nullish(),
+        images: z.array(z.any()).nullish(),
         toolsSettings: z.object({
             skipPermissions: z.boolean().nullish()
         }).nullish()
