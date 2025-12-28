@@ -2808,9 +2808,13 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           }
         }
       } else {
-        // Only clear messages if this is NOT a system-initiated session change AND we're not loading
-        // During system session changes or while loading, preserve the chat messages
-        if (!isSystemSessionChange && !isLoading) {
+        // Reset loading state when switching away from a session (e.g., switching projects)
+        // This ensures the UI is not stuck in a loading state from a previous session
+        setIsLoading(false);
+        setCanAbortSession(false);
+
+        // Only clear messages if this is NOT a system-initiated session change
+        if (!isSystemSessionChange) {
           setChatMessages([]);
           setSessionMessages([]);
         }
