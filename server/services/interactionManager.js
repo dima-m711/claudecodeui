@@ -15,13 +15,15 @@ export class InteractionManager extends EventEmitter {
       ttl: 1000 * 60 * 15,
       updateAgeOnGet: true,
       dispose: (sessionId, interactions) => {
-        console.log(`Pruning session ${sessionId} with ${interactions.size} interactions`);
-        interactions.forEach(interactionId => {
-          const interaction = this.pendingInteractions.get(interactionId);
-          if (interaction && interaction.status === 'pending') {
-            this.rejectInteraction(interactionId, 'Session expired (TTL)');
-          }
-        });
+        if (interactions instanceof Set && interactions.size > 0) {
+          console.log(`Pruning session ${sessionId} with ${interactions.size} interactions`);
+          interactions.forEach(interactionId => {
+            const interaction = this.pendingInteractions.get(interactionId);
+            if (interaction && interaction.status === 'pending') {
+              this.rejectInteraction(interactionId, 'Session expired (TTL)');
+            }
+          });
+        }
       }
     });
     this.statistics = new Map();

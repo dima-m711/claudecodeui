@@ -108,33 +108,33 @@ const InteractionSyncRequestSchema = z.object({
 
 const ClaudeCommandSchema = z.object({
     type: z.literal('claude-command'),
-    command: z.string().optional(),
+    command: z.string().nullish(),
     options: z.object({
-        projectPath: z.string().optional(),
-        sessionId: z.string().optional(),
-        permissionMode: z.string().optional(),
+        projectPath: z.string().nullish(),
+        sessionId: z.string().nullish(),
+        permissionMode: z.string().nullish(),
         toolsSettings: z.object({
-            skipPermissions: z.boolean().optional()
-        }).optional()
-    }).optional()
+            skipPermissions: z.boolean().nullish()
+        }).nullish()
+    }).nullish()
 });
 
 const CursorCommandSchema = z.object({
     type: z.literal('cursor-command'),
-    command: z.string().optional(),
+    command: z.string().nullish(),
     options: z.object({
-        cwd: z.string().optional(),
-        sessionId: z.string().optional(),
-        model: z.string().optional()
-    }).optional()
+        cwd: z.string().nullish(),
+        sessionId: z.string().nullish(),
+        model: z.string().nullish()
+    }).nullish()
 });
 
 const CursorResumeSchema = z.object({
     type: z.literal('cursor-resume'),
     sessionId: z.string(),
     options: z.object({
-        cwd: z.string().optional()
-    }).optional()
+        cwd: z.string().nullish()
+    }).nullish()
 });
 
 const AbortSessionSchema = z.object({
