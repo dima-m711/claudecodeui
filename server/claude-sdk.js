@@ -128,6 +128,7 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
   // Map model (default to sonnet)
   // Valid models: sonnet, opus, haiku, opusplan, sonnet[1m]
   sdkOptions.model = options.model || 'sonnet';
+  console.log(`Using model: ${sdkOptions.model}`);
 
   // Map system prompt configuration
   sdkOptions.systemPrompt = {
@@ -234,6 +235,8 @@ function extractTokenBudget(resultMessage) {
 
   const contextWindow = parseInt(process.env.CONTEXT_WINDOW) || 160000;
 
+  console.log(`Token calculation: input=${inputTokens}, output=${outputTokens}, cache=${cacheReadTokens + cacheCreationTokens}, total=${totalUsed}/${contextWindow}`);
+
   return {
     used: totalUsed,
     total: contextWindow
@@ -288,6 +291,7 @@ async function handleImages(command, images, cwd) {
       modifiedCommand = command + imageNote;
     }
 
+    console.log(`Processed ${tempImagePaths.length} images to temp directory: ${tempDir}`);
     return { modifiedCommand, tempImagePaths, tempDir };
   } catch (error) {
     console.error('Error processing images for SDK:', error);
@@ -320,6 +324,7 @@ async function cleanupTempFiles(tempImagePaths, tempDir) {
       );
     }
 
+    console.log(`Cleaned up ${tempImagePaths.length} temp image files`);
   } catch (error) {
     console.error('Error during temp file cleanup:', error);
   }
@@ -338,6 +343,8 @@ async function loadMcpConfig(cwd) {
     try {
       await fs.access(claudeConfigPath);
     } catch (error) {
+      // File doesn't exist, return null
+      console.log('No ~/.claude.json found, proceeding without MCP servers');
       return null;
     }
 
@@ -355,19 +362,23 @@ async function loadMcpConfig(cwd) {
 
     if (claudeConfig.mcpServers && typeof claudeConfig.mcpServers === 'object') {
       mcpServers = { ...claudeConfig.mcpServers };
+      console.log(`Loaded ${Object.keys(mcpServers).length} global MCP servers`);
     }
 
     if (claudeConfig.claudeProjects && cwd) {
       const projectConfig = claudeConfig.claudeProjects[cwd];
       if (projectConfig && projectConfig.mcpServers && typeof projectConfig.mcpServers === 'object') {
         mcpServers = { ...mcpServers, ...projectConfig.mcpServers };
+        console.log(`Loaded ${Object.keys(projectConfig.mcpServers).length} project-specific MCP servers`);
       }
     }
 
     if (Object.keys(mcpServers).length === 0) {
+      console.log('No MCP servers configured');
       return null;
     }
 
+    console.log(`Total MCP servers loaded: ${Object.keys(mcpServers).length}`);
     return mcpServers;
   } catch (error) {
     console.error('Error loading MCP config:', error.message);
@@ -450,6 +461,8 @@ async function queryClaudeSDK(command, options = {}, ws) {
       addSession(capturedSessionId, queryInstance, tempImagePaths, tempDir);
     }
 
+    // Process streaming messages
+    console.log('Starting async generator loop for session:', capturedSessionId || 'NEW');
     for await (const message of queryInstance) {
 
       // Capture session ID from first message
@@ -471,7 +484,11 @@ async function queryClaudeSDK(command, options = {}, ws) {
             type: 'session-created',
             sessionId: capturedSessionId
           }));
+        } else {
+          console.log('Not sending session-created. sessionId:', sessionId, 'sessionCreatedSent:', sessionCreatedSent);
         }
+      } else {
+        console.log('No session_id in message or already captured. message.session_id:', message.session_id, 'capturedSessionId:', capturedSessionId);
       }
 
 
@@ -486,6 +503,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       if (message.type === 'result') {
         const tokenBudget = extractTokenBudget(message);
         if (tokenBudget) {
+          console.log('Token budget from modelUsage:', tokenBudget);
           ws.send(JSON.stringify({
             type: 'token-budget',
             data: tokenBudget
@@ -503,12 +521,14 @@ async function queryClaudeSDK(command, options = {}, ws) {
     await cleanupTempFiles(tempImagePaths, tempDir);
 
     // Send completion event
+    console.log('Streaming complete, sending claude-complete event');
     ws.send(JSON.stringify({
       type: 'claude-complete',
       sessionId: capturedSessionId,
       exitCode: 0,
       isNewSession: !sessionId && !!command
     }));
+    console.log('claude-complete event sent');
 
   } catch (error) {
     console.error('[SDK] ========== Query Error ==========');
@@ -551,6 +571,7 @@ async function abortClaudeSDKSession(sessionId) {
   }
 
   try {
+    console.log(`Aborting SDK session: ${sessionId}`);
 
     // Call interrupt() on the query instance
     await session.instance.interrupt();
