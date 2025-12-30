@@ -819,6 +819,32 @@ wss.on('connection', (ws, request) => {
     }
 });
 
+/**
+ * WebSocket Writer - Wrapper for WebSocket to match SSEStreamWriter interface
+ */
+class WebSocketWriter {
+  constructor(ws) {
+    this.ws = ws;
+    this.sessionId = null;
+    this.isWebSocketWriter = true;  // Marker for transport detection
+  }
+
+  send(data) {
+    if (this.ws.readyState === 1) { // WebSocket.OPEN
+      // Providers send raw objects, we stringify for WebSocket
+      this.ws.send(JSON.stringify(data));
+    }
+  }
+
+  setSessionId(sessionId) {
+    this.sessionId = sessionId;
+  }
+
+  getSessionId() {
+    return this.sessionId;
+  }
+}
+
 // Handle chat WebSocket connections
 function handleChatConnection(ws) {
     console.log('[INFO] Chat WebSocket connected');
@@ -826,6 +852,9 @@ function handleChatConnection(ws) {
     const clientId = randomUUID();
     ws.clientId = clientId;
     connectedClients.set(clientId, { ws, sessionId: null, lastSeen: Date.now() });
+
+    // Wrap WebSocket with writer for consistent interface with SSEStreamWriter
+    const writer = new WebSocketWriter(ws);
 
     ws.on('message', async (messageBuffer) => {
         try {
@@ -904,15 +933,15 @@ function handleChatConnection(ws) {
             }
 
             if (data.type === 'claude-command') {
-                await queryClaudeSDK(data.command, data.options, ws);
+                await queryClaudeSDK(data.command, data.options, writer);
             } else if (data.type === 'cursor-command') {
-                await spawnCursor(data.command, data.options, ws);
+                await spawnCursor(data.command, data.options, writer);
             } else if (data.type === 'codex-command') {
                 console.log('[DEBUG] Codex message:', data.command || '[Continue/Resume]');
                 console.log('📁 Project:', data.options?.projectPath || data.options?.cwd || 'Unknown');
                 console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
                 console.log('🤖 Model:', data.options?.model || 'default');
-                await queryCodex(data.command, data.options, ws);
+                await queryCodex(data.command, data.options, writer);
             } else if (data.type === 'cursor-resume') {
                 // Backward compatibility: treat as cursor-command with resume and no prompt
                 console.log('[DEBUG] Cursor resume session (compat):', data.sessionId);
@@ -920,7 +949,7 @@ function handleChatConnection(ws) {
                     sessionId: data.sessionId,
                     resume: true,
                     cwd: data.options?.cwd
-                }, ws);
+                }, writer);
             } else if (data.type === 'abort-session') {
                 console.log('[DEBUG] Abort session request:', data.sessionId);
                 const provider = data.provider || 'claude';
@@ -935,21 +964,21 @@ function handleChatConnection(ws) {
                     success = await abortClaudeSDKSession(data.sessionId);
                 }
 
-                ws.send(JSON.stringify({
+                writer.send({
                     type: 'session-aborted',
                     sessionId: data.sessionId,
                     provider,
                     success
-                }));
+                });
             } else if (data.type === 'cursor-abort') {
                 console.log('[DEBUG] Abort Cursor session:', data.sessionId);
                 const success = abortCursorSession(data.sessionId);
-                ws.send(JSON.stringify({
+                writer.send({
                     type: 'session-aborted',
                     sessionId: data.sessionId,
                     provider: 'cursor',
                     success
-                }));
+                });
             } else if (data.type === 'check-session-status') {
                 // Check if a specific session is currently processing
                 const provider = data.provider || 'claude';
@@ -965,12 +994,12 @@ function handleChatConnection(ws) {
                     isActive = isClaudeSDKSessionActive(sessionId);
                 }
 
-                ws.send(JSON.stringify({
+                writer.send({
                     type: 'session-status',
                     sessionId,
                     provider,
                     isProcessing: isActive
-                }));
+                });
             } else if (data.type === 'get-active-sessions') {
                 // Get all currently active sessions
                 const activeSessions = {
@@ -978,18 +1007,18 @@ function handleChatConnection(ws) {
                     cursor: getActiveCursorSessions(),
                     codex: getActiveCodexSessions()
                 };
-                ws.send(JSON.stringify({
+                writer.send({
                     type: 'active-sessions',
                     sessions: activeSessions
-                }));
+                });
             }
         } catch (error) {
             console.error('[ERROR] Chat WebSocket error:', error.message);
-            const errorResponse = {
+            writer.send({
                 type: 'error',
                 error: error.name === 'SyntaxError' ? 'INVALID_JSON' : error.message
             };
-            ws.send(JSON.stringify(errorResponse));
+            ws.send(JSON.stringify(errorResponse);
         }
     });
 

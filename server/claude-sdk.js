@@ -16,6 +16,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
+import { CLAUDE_MODELS } from '../shared/modelConstants.js';
 import crypto from 'crypto';
 import { getInteractionManager } from './services/interactionManager.js';
 import {
@@ -127,7 +128,7 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
 
   // Map model (default to sonnet)
   // Valid models: sonnet, opus, haiku, opusplan, sonnet[1m]
-  sdkOptions.model = options.model || 'sonnet';
+  sdkOptions.model = options.model || CLAUDE_MODELS.DEFAULT;
   console.log(`Using model: ${sdkOptions.model}`);
 
   // Map system prompt configuration
@@ -480,10 +481,10 @@ async function queryClaudeSDK(command, options = {}, ws) {
         // Send session-created event only once for new sessions
         if (!sessionId && !sessionCreatedSent) {
           sessionCreatedSent = true;
-          ws.send(JSON.stringify({
+          ws.send({
             type: 'session-created',
             sessionId: capturedSessionId
-          }));
+          });
         } else {
           console.log('Not sending session-created. sessionId:', sessionId, 'sessionCreatedSent:', sessionCreatedSent);
         }
@@ -494,20 +495,20 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
       // Transform and send message to WebSocket
       const transformedMessage = transformMessage(message);
-      ws.send(JSON.stringify({
+      ws.send({
         type: 'claude-response',
         data: transformedMessage
-      }));
+      });
 
       // Extract and send token budget updates from result messages
       if (message.type === 'result') {
         const tokenBudget = extractTokenBudget(message);
         if (tokenBudget) {
           console.log('Token budget from modelUsage:', tokenBudget);
-          ws.send(JSON.stringify({
+          ws.send({
             type: 'token-budget',
             data: tokenBudget
-          }));
+          });
         }
       }
     }
@@ -522,12 +523,12 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     // Send completion event
     console.log('Streaming complete, sending claude-complete event');
-    ws.send(JSON.stringify({
+    ws.send({
       type: 'claude-complete',
       sessionId: capturedSessionId,
       exitCode: 0,
       isNewSession: !sessionId && !!command
-    }));
+    });
     console.log('claude-complete event sent');
 
   } catch (error) {
@@ -548,10 +549,10 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     await cleanupTempFiles(tempImagePaths, tempDir);
 
-    ws.send(JSON.stringify({
+    ws.send({
       type: 'claude-error',
       error: error.message
-    }));
+    });
 
     throw error;
   }
