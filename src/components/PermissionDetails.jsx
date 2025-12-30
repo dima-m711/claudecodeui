@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 const PERMISSION_DECISIONS = {
   ALLOW: 'allow',
   ALLOW_SESSION: 'allow-session',
+  ALLOW_ALWAYS: 'allow-always',
   DENY: 'deny',
   MODIFY: 'modify'
 };
@@ -138,6 +139,12 @@ const PermissionDetails = ({ interaction, onResponse, onDismiss }) => {
             className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
           >
             Allow for Session
+          </button>
+          <button
+            onClick={() => handleDecision(PERMISSION_DECISIONS.ALLOW_ALWAYS)}
+            className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors"
+          >
+            Allow Always
           </button>
           <button
             onClick={() => handleDecision(PERMISSION_DECISIONS.MODIFY)}
