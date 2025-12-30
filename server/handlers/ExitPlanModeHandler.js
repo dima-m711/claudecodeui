@@ -23,9 +23,14 @@ export class ExitPlanModeHandler {
       });
 
       if (response.cancelled) {
+        const rejectionMessage = response.feedback
+          ? `Plan rejected by user. Feedback: ${response.feedback}`
+          : 'Plan rejected by user';
+        console.log('[SDK] Plan approval cancelled:', rejectionMessage);
         return {
           behavior: 'deny',
-          message: 'Plan rejected by user'
+          message: rejectionMessage,
+          interrupt: !response.feedback
         };
       }
 

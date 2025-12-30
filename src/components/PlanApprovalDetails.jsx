@@ -10,6 +10,7 @@ const PlanApprovalDetails = ({ interaction, onResponse, onDismiss }) => {
   console.log('📋 [PlanApprovalDetails] planData:', planData);
 
   const [permissionMode, setPermissionMode] = useState('default');
+  const [feedbackText, setFeedbackText] = useState('');
 
   const handleApprove = () => {
     onResponse({
@@ -18,7 +19,10 @@ const PlanApprovalDetails = ({ interaction, onResponse, onDismiss }) => {
   };
 
   const handleReject = () => {
-    onDismiss();
+    onDismiss({
+      cancelled: true,
+      feedback: feedbackText.trim() || undefined
+    });
   };
 
   const permissionOptions = [
@@ -96,6 +100,21 @@ const PlanApprovalDetails = ({ interaction, onResponse, onDismiss }) => {
             </label>
           ))}
         </div>
+      </div>
+
+      <div>
+        <h4 className="font-semibold text-sm text-gray-900 dark:text-gray-100 mb-2">
+          Rejection Feedback (Optional)
+        </h4>
+        <textarea
+          value={feedbackText}
+          onChange={(e) => setFeedbackText(e.target.value)}
+          placeholder="Provide feedback if you reject the plan..."
+          className="w-full h-24 p-3 border border-gray-200 dark:border-gray-700 rounded-lg resize-y bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        />
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          This feedback will be sent to Claude if you reject the plan
+        </p>
       </div>
 
       <div className="flex gap-3">

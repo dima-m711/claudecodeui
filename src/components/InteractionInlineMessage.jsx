@@ -40,11 +40,11 @@ const InteractionInlineMessage = ({
     onResponse?.(response);
   }, [interaction, onResponse]);
 
-  const handleDismiss = useCallback(() => {
+  const handleDismiss = useCallback((dismissData) => {
     if (interaction?.sessionId && interaction?.id) {
       clearInlineMessageState(interaction.sessionId, interaction.id);
     }
-    onDismiss?.();
+    onDismiss?.(dismissData);
   }, [interaction, onDismiss]);
 
   if (!interaction) {

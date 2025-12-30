@@ -48,7 +48,7 @@ const InteractionRenderer = ({ interactions, onResponse, currentSessionId }) => 
           interaction={interaction}
           detailsComponent={getDetailsComponent(interaction.type)}
           onResponse={(response) => onResponse(interaction.id, response)}
-          onDismiss={() => onResponse(interaction.id, { cancelled: true })}
+          onDismiss={(dismissData) => onResponse(interaction.id, dismissData || { cancelled: true })}
         />
       ))}
     </div>

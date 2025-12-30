@@ -1017,8 +1017,8 @@ function handleChatConnection(ws) {
             writer.send({
                 type: 'error',
                 error: error.name === 'SyntaxError' ? 'INVALID_JSON' : error.message
-            };
-            ws.send(JSON.stringify(errorResponse);
+            });
+            // ws.send(JSON.stringify(errorResponse));
         }
     });
 

@@ -39,11 +39,6 @@ export class PermissionManager {
 
   async handleDefaultPermissionMode(toolName, input, requestId, ws, sessionIdRef, abortSignal, suggestions) {
     try {
-      if (!ws || ws.readyState !== 1) {
-        console.warn('No WebSocket connection, auto-denying permission');
-        return { behavior: 'deny', message: 'No WebSocket connection available' };
-      }
-
       const currentSessionId = sessionIdRef ? sessionIdRef.current : null;
 
       const riskLevel = TOOL_RISK_LEVELS[toolName] || RiskLevel.HIGH;
