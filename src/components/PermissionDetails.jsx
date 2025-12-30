@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 
 const PERMISSION_DECISIONS = {
@@ -13,10 +13,9 @@ const PermissionDetails = ({ interaction, onResponse, onDismiss }) => {
   const { toolName, input, riskLevel = 'medium', category = 'general' } = data || {};
 
   const [decision, setDecision] = useState(null);
-  const [modifiedInput, setModifiedInput] = useState(JSON.stringify(input, null, 2));
+  const [modifiedInput, setModifiedInput] = useState(JSON.stringify(input || {}, null, 2));
   const [showInputEditor, setShowInputEditor] = useState(false);
   const [showParameters, setShowParameters] = useState(false);
-  const inputPreviewRef = useRef(null);
 
   const handleDecision = (selectedDecision) => {
     if (selectedDecision === PERMISSION_DECISIONS.MODIFY) {
@@ -45,12 +44,6 @@ const PermissionDetails = ({ interaction, onResponse, onDismiss }) => {
       alert('Invalid JSON: ' + error.message);
     }
   };
-
-  useEffect(() => {
-    if (inputPreviewRef.current) {
-      inputPreviewRef.current.textContent = JSON.stringify(input, null, 2);
-    }
-  }, [input]);
 
   const getRiskStyles = (risk) => {
     switch (risk) {
@@ -95,7 +88,9 @@ const PermissionDetails = ({ interaction, onResponse, onDismiss }) => {
           </button>
           {showParameters && (
             <div className="border-t border-gray-200 dark:border-gray-700 p-2">
-              <pre ref={inputPreviewRef} className="text-xs overflow-auto max-h-48 bg-gray-900 text-gray-100 p-2 rounded m-0" />
+              <pre className="text-xs overflow-auto max-h-48 bg-gray-900 text-gray-100 p-2 rounded m-0">
+                {JSON.stringify(input, null, 2)}
+              </pre>
             </div>
           )}
         </div>
