@@ -383,32 +383,63 @@ async function loadMcpConfig(cwd) {
  * @returns {Promise<void>}
  */
 async function queryClaudeSDK(command, options = {}, ws) {
-  const { sessionId } = options;
+  const { sessionId, cwd, projectPath, resume, model, permissionMode } = options;
   let capturedSessionId = sessionId;
   let sessionCreatedSent = false;
   let tempImagePaths = [];
   let tempDir = null;
 
-  // Create a reference object for sessionId that can be updated
+  console.log('[SDK] ========== Starting queryClaudeSDK ==========');
+  console.log('[SDK] Timestamp:', new Date().toISOString());
+  console.log('[SDK] Options:', JSON.stringify({
+    sessionId,
+    cwd,
+    projectPath,
+    resume,
+    model,
+    permissionMode,
+    hasImages: !!(options.images && options.images.length)
+  }, null, 2));
+  console.log('[SDK] Command length:', command?.length || 0);
+
+  if (cwd) {
+    try {
+      const cwdStats = await fs.stat(cwd);
+      console.log('[SDK] CWD validation:', JSON.stringify({
+        exists: true,
+        isDirectory: cwdStats.isDirectory(),
+        path: cwd
+      }));
+    } catch (cwdError) {
+      console.warn('[SDK] CWD validation failed:', cwd, cwdError.message);
+    }
+  }
+
   const sessionIdRef = { current: capturedSessionId };
 
   try {
-    // Map CLI options to SDK format (pass ws and sessionIdRef for permission handling)
     const { sdkOptions, runtimeState } = mapCliOptionsToSDK(options, ws, sessionIdRef);
 
-    // Load MCP configuration
+    console.log('[SDK] Loading MCP config for cwd:', options.cwd);
     const mcpServers = await loadMcpConfig(options.cwd);
+    console.log('[SDK] MCP servers loaded:', mcpServers ? Object.keys(mcpServers) : 'none');
     if (mcpServers) {
       sdkOptions.mcpServers = mcpServers;
     }
 
-    // Handle images - save to temp files and modify prompt
     const imageResult = await handleImages(command, options.images, options.cwd);
     const finalCommand = imageResult.modifiedCommand;
     tempImagePaths = imageResult.tempImagePaths;
     tempDir = imageResult.tempDir;
 
-    // Create SDK query instance
+    console.log('[SDK] Mapped SDK options:', JSON.stringify({
+      ...sdkOptions,
+      mcpServers: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers) : null,
+      canUseTool: !!sdkOptions.canUseTool
+    }, null, 2));
+    console.log('[SDK] Creating query instance...');
+    console.log('[SDK] Prompt length:', finalCommand?.length || 0);
+
     const queryInstance = query({
       prompt: finalCommand,
       options: sdkOptions
@@ -480,17 +511,23 @@ async function queryClaudeSDK(command, options = {}, ws) {
     }));
 
   } catch (error) {
-    console.error('SDK query error:', error);
+    console.error('[SDK] ========== Query Error ==========');
+    console.error('[SDK] Error name:', error.name);
+    console.error('[SDK] Error message:', error.message);
+    console.error('[SDK] Error stack:', error.stack);
+    console.error('[SDK] Options at error:', JSON.stringify({
+      sessionId: capturedSessionId,
+      cwd: options.cwd,
+      projectPath: options.projectPath,
+      model: options.model
+    }));
 
-    // Clean up session on error
     if (capturedSessionId) {
       removeSession(capturedSessionId);
     }
 
-    // Clean up temporary image files on error
     await cleanupTempFiles(tempImagePaths, tempDir);
 
-    // Send error to WebSocket
     ws.send(JSON.stringify({
       type: 'claude-error',
       error: error.message
