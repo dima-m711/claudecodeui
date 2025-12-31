@@ -106,7 +106,9 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
             'Task',             // Launch subagents
             'ExitPlanMode',     // Exit planning mode
             'TodoRead',         // Read todos
-            'TodoWrite',        // Write todos
+            'TodoWrite',
+            'WebFetch',
+            'WebSearch',
             'AskUserQuestion'   // Ask clarifying questions
       ];
       for (const tool of planModeTools) {

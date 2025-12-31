@@ -131,3 +131,6 @@ tasks.json
 tasks/
 /.claude/settings.local.json
 /.playwright-mcp/
+
+# Auto Claude data directory
+.auto-claude/
