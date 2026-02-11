@@ -13,6 +13,9 @@
  */
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
+// Used to mint unique approval request IDs when randomUUID is not available.
+// This keeps parallel tool approvals from colliding; it does not add any crypto/security guarantees.
+import crypto from 'crypto';
 import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
@@ -31,6 +34,124 @@ import { ExitPlanModeHandler } from './handlers/ExitPlanModeHandler.js';
 import { PermissionManager } from './services/PermissionManager.js';
 
 const activeSessions = new Map();
+// In-memory registry of pending tool approvals keyed by requestId.
+// This does not persist approvals or share across processes; it exists so the
+// SDK can pause tool execution while the UI decides what to do.
+const pendingToolApprovals = new Map();
+
+// Default approval timeout kept under the SDK's 60s control timeout.
+// This does not change SDK limits; it only defines how long we wait for the UI,
+// introduced to avoid hanging the run when no decision arrives.
+const TOOL_APPROVAL_TIMEOUT_MS = parseInt(process.env.CLAUDE_TOOL_APPROVAL_TIMEOUT_MS, 10) || 55000;
+
+// Generate a stable request ID for UI approval flows.
+// This does not encode tool details or get shown to users; it exists so the UI
+// can respond to the correct pending request without collisions.
+function createRequestId() {
+  // if clause is used because randomUUID is not available in older Node.js versions
+  if (typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return crypto.randomBytes(16).toString('hex');
+}
+
+// Wait for a UI approval decision, honoring SDK cancellation.
+// This does not auto-approve or auto-deny; it only resolves with UI input,
+// and it cleans up the pending map to avoid leaks, introduced to prevent
+// replying after the SDK cancels the control request.
+function waitForToolApproval(requestId, options = {}) {
+  const { timeoutMs = TOOL_APPROVAL_TIMEOUT_MS, signal, onCancel } = options;
+
+  return new Promise(resolve => {
+    let settled = false;
+
+    const finalize = (decision) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(decision);
+    };
+
+    const cleanup = () => {
+      pendingToolApprovals.delete(requestId);
+      clearTimeout(timeout);
+      if (signal && abortHandler) {
+        signal.removeEventListener('abort', abortHandler);
+      }
+    };
+
+    // Timeout is local to this process; it does not override SDK timing.
+    // It exists to prevent the UI prompt from lingering indefinitely.
+    const timeout = setTimeout(() => {
+      onCancel?.('timeout');
+      finalize(null);
+    }, timeoutMs);
+
+    const abortHandler = () => {
+      // If the SDK cancels the control request, stop waiting to avoid
+      // replying after the process is no longer ready for writes.
+      onCancel?.('cancelled');
+      finalize({ cancelled: true });
+    };
+
+    if (signal) {
+      if (signal.aborted) {
+        onCancel?.('cancelled');
+        finalize({ cancelled: true });
+        return;
+      }
+      signal.addEventListener('abort', abortHandler, { once: true });
+    }
+
+    pendingToolApprovals.set(requestId, (decision) => {
+      finalize(decision);
+    });
+  });
+}
+
+// Resolve a pending approval. This does not validate the decision payload;
+// validation and tool matching remain in canUseTool, which keeps this as a
+// lightweight WebSocket -> SDK relay.
+function resolveToolApproval(requestId, decision) {
+  const resolver = pendingToolApprovals.get(requestId);
+  if (resolver) {
+    resolver(decision);
+  }
+}
+
+// Match stored permission entries against a tool + input combo.
+// This only supports exact tool names and the Bash(command:*) shorthand
+// used by the UI; it intentionally does not implement full glob semantics,
+// introduced to stay consistent with the UI's "Allow rule" format.
+function matchesToolPermission(entry, toolName, input) {
+  if (!entry || !toolName) {
+    return false;
+  }
+
+  if (entry === toolName) {
+    return true;
+  }
+
+  const bashMatch = entry.match(/^Bash\((.+):\*\)$/);
+  if (toolName === 'Bash' && bashMatch) {
+    const allowedPrefix = bashMatch[1];
+    let command = '';
+
+    if (typeof input === 'string') {
+      command = input.trim();
+    } else if (input && typeof input === 'object' && typeof input.command === 'string') {
+      command = input.command.trim();
+    }
+
+    if (!command) {
+      return false;
+    }
+
+    return command.startsWith(allowedPrefix);
+  }
+
+  return false;
+}
 
 function createCanUseToolHandler(runtimeState, ws, sessionIdRef) {
   const interactionManager = getInteractionManager();
@@ -93,40 +214,39 @@ function mapCliOptionsToSDK(options = {}, ws = null, sessionIdRef = null) {
   if (settings.skipPermissions && runtimeState.permissionMode !== 'plan') {
     sdkOptions.permissionMode = 'bypassPermissions';
     runtimeState.permissionMode = 'bypassPermissions';
-  } else {
-    // Map allowed tools
-    let allowedTools = [...(settings.allowedTools || [])];
+  }
 
-    // Add plan mode default tools
-    if (runtimeState.permissionMode === 'plan') {
-      const planModeTools = [
-            'Read',             // Read files for context
-            'Glob',             // Search for files by pattern
-            'Grep',             // Search code content
-            'Task',             // Launch subagents
-            'ExitPlanMode',     // Exit planning mode
-            'TodoRead',         // Read todos
-            'TodoWrite',
-            'WebFetch',
-            'WebSearch',
-            'AskUserQuestion'   // Ask clarifying questions
-      ];
-      for (const tool of planModeTools) {
-        if (!allowedTools.includes(tool)) {
-          allowedTools.push(tool);
-        }
+  // Map allowed tools (always set to avoid implicit "allow all" defaults).
+  // This does not grant permissions by itself; it just configures the SDK,
+  // introduced because leaving it undefined made the SDK treat it as "all tools allowed."
+  let allowedTools = [...(settings.allowedTools || [])];
+
+  // Add plan mode default tools
+  if (runtimeState.permissionMode === 'plan') {
+    const planModeTools = [
+      'Read',             // Read files for context
+      'Glob',             // Search for files by pattern
+      'Grep',             // Search code content
+      'Task',             // Launch subagents
+      'ExitPlanMode',     // Exit planning mode
+      'TodoRead',         // Read todos
+      'TodoWrite',
+      'WebFetch',
+      'WebSearch',
+      'AskUserQuestion'   // Ask clarifying questions
+    ];
+    for (const tool of planModeTools) {
+      if (!allowedTools.includes(tool)) {
+        allowedTools.push(tool);
       }
     }
-
-    if (allowedTools.length > 0) {
-      sdkOptions.allowedTools = allowedTools;
-    }
-
-    // Map disallowed tools
-    if (settings.disallowedTools && settings.disallowedTools.length > 0) {
-      sdkOptions.disallowedTools = settings.disallowedTools;
-    }
   }
+
+  sdkOptions.allowedTools = allowedTools;
+
+  // Map disallowed tools (always set so the SDK doesn't treat "undefined" as permissive).
+  // This does not override allowlists; it only feeds the canUseTool gate.
+  sdkOptions.disallowedTools = settings.disallowedTools || [];
 
   // Map model (default to sonnet)
   // Valid models: sonnet, opus, haiku, opusplan, sonnet[1m]
@@ -454,6 +574,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     console.log('[SDK] Creating query instance...');
     console.log('[SDK] Prompt length:', finalCommand?.length || 0);
 
+    // Create SDK query instance
     const queryInstance = query({
       prompt: finalCommand,
       options: sdkOptions
@@ -499,7 +620,8 @@ async function queryClaudeSDK(command, options = {}, ws) {
       const transformedMessage = transformMessage(message);
       ws.send({
         type: 'claude-response',
-        data: transformedMessage
+        data: transformedMessage,
+        sessionId: capturedSessionId || sessionId || null
       });
 
       // Extract and send token budget updates from result messages
@@ -509,7 +631,8 @@ async function queryClaudeSDK(command, options = {}, ws) {
           console.log('Token budget from modelUsage:', tokenBudget);
           ws.send({
             type: 'token-budget',
-            data: tokenBudget
+            data: tokenBudget,
+            sessionId: capturedSessionId || sessionId || null
           });
         }
       }
@@ -553,7 +676,8 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     ws.send({
       type: 'claude-error',
-      error: error.message
+      error: error.message,
+      sessionId: capturedSessionId || sessionId || null
     });
 
     throw error;
@@ -618,5 +742,6 @@ export {
   queryClaudeSDK,
   abortClaudeSDKSession,
   isClaudeSDKSessionActive,
-  getActiveClaudeSDKSessions
+  getActiveClaudeSDKSessions,
+  resolveToolApproval
 };

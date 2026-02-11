@@ -4,6 +4,8 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
+import { useTranslation } from 'react-i18next';
+import { IS_PLATFORM } from '../constants/config';
 
 const xtermStyles = `
   .xterm .xterm-screen {
@@ -24,7 +26,33 @@ if (typeof document !== 'undefined') {
   document.head.appendChild(styleSheet);
 }
 
+function fallbackCopyToClipboard(text) {
+  if (!text || typeof document === 'undefined') return false;
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  textarea.style.pointerEvents = 'none';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  let copied = false;
+  try {
+    copied = document.execCommand('copy');
+  } catch {
+    copied = false;
+  } finally {
+    document.body.removeChild(textarea);
+  }
+
+  return copied;
+}
+
 function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell = false, onProcessComplete, minimal = false, autoConnect = false }) {
+  const { t } = useTranslation('chat');
   const terminalRef = useRef(null);
   const terminal = useRef(null);
   const fitAddon = useRef(null);
@@ -34,12 +62,15 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
   const [isRestarting, setIsRestarting] = useState(false);
   const [lastSessionId, setLastSessionId] = useState(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [authUrl, setAuthUrl] = useState('');
+  const [authUrlCopyStatus, setAuthUrlCopyStatus] = useState('idle');
 
   const selectedProjectRef = useRef(selectedProject);
   const selectedSessionRef = useRef(selectedSession);
   const initialCommandRef = useRef(initialCommand);
   const isPlainShellRef = useRef(isPlainShell);
   const onProcessCompleteRef = useRef(onProcessComplete);
+  const authUrlRef = useRef('');
 
   useEffect(() => {
     selectedProjectRef.current = selectedProject;
@@ -49,14 +80,49 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     onProcessCompleteRef.current = onProcessComplete;
   });
 
+  const openAuthUrlInBrowser = useCallback((url = authUrlRef.current) => {
+    if (!url) return false;
+
+    const popup = window.open(url, '_blank', 'noopener,noreferrer');
+    if (popup) {
+      try {
+        popup.opener = null;
+      } catch {
+        // Ignore cross-origin restrictions when trying to null opener
+      }
+      return true;
+    }
+
+    return false;
+  }, []);
+
+  const copyAuthUrlToClipboard = useCallback(async (url = authUrlRef.current) => {
+    if (!url) return false;
+
+    let copied = false;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        copied = true;
+      }
+    } catch {
+      copied = false;
+    }
+
+    if (!copied) {
+      copied = fallbackCopyToClipboard(url);
+    }
+
+    return copied;
+  }, []);
+
   const connectWebSocket = useCallback(async () => {
     if (isConnecting || isConnected) return;
 
     try {
-      const isPlatform = import.meta.env.VITE_IS_PLATFORM === 'true';
       let wsUrl;
 
-      if (isPlatform) {
+      if (IS_PLATFORM) {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         wsUrl = `${protocol}//${window.location.host}/shell`;
       } else {
@@ -75,6 +141,9 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
       ws.current.onopen = () => {
         setIsConnected(true);
         setIsConnecting(false);
+        authUrlRef.current = '';
+        setAuthUrl('');
+        setAuthUrlCopyStatus('idle');
 
         setTimeout(() => {
           if (fitAddon.current && terminal.current) {
@@ -117,8 +186,16 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
             if (terminal.current) {
               terminal.current.write(output);
             }
+          } else if (data.type === 'auth_url' && data.url) {
+            authUrlRef.current = data.url;
+            setAuthUrl(data.url);
+            setAuthUrlCopyStatus('idle');
           } else if (data.type === 'url_open') {
-            window.open(data.url, '_blank');
+            if (data.url) {
+              authUrlRef.current = data.url;
+              setAuthUrl(data.url);
+              setAuthUrlCopyStatus('idle');
+            }
           }
         } catch (error) {
           console.error('[Shell] Error handling WebSocket message:', error, event.data);
@@ -128,6 +205,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
       ws.current.onclose = (event) => {
         setIsConnected(false);
         setIsConnecting(false);
+        setAuthUrlCopyStatus('idle');
 
         if (terminal.current) {
           terminal.current.clear();
@@ -143,7 +221,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
       setIsConnected(false);
       setIsConnecting(false);
     }
-  }, [isConnecting, isConnected]);
+  }, [isConnecting, isConnected, openAuthUrlInBrowser]);
 
   const connectToShell = useCallback(() => {
     if (!isInitialized || isConnected || isConnecting) return;
@@ -164,6 +242,9 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
     setIsConnected(false);
     setIsConnecting(false);
+    authUrlRef.current = '';
+    setAuthUrl('');
+    setAuthUrlCopyStatus('idle');
   }, []);
 
   const sessionDisplayName = useMemo(() => {
@@ -199,6 +280,9 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
     setIsConnected(false);
     setIsInitialized(false);
+    authUrlRef.current = '';
+    setAuthUrl('');
+    setAuthUrlCopyStatus('idle');
 
     setTimeout(() => {
       setIsRestarting(false);
@@ -232,7 +316,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
       tabStopWidth: 4,
       windowsMode: false,
       macOptionIsMeta: true,
-      macOptionClickForcesSelection: false,
+      macOptionClickForcesSelection: true,
       theme: {
         background: '#1e1e1e',
         foreground: '#d4d4d4',
@@ -270,7 +354,10 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     const webLinksAddon = new WebLinksAddon();
 
     terminal.current.loadAddon(fitAddon.current);
-    terminal.current.loadAddon(webLinksAddon);
+    // Disable xterm link auto-detection in minimal (login) mode to avoid partial wrapped URL links.
+    if (!minimal) {
+      terminal.current.loadAddon(webLinksAddon);
+    }
     // Note: ClipboardAddon removed - we handle clipboard operations manually in attachCustomKeyEventHandler
 
     try {
@@ -282,12 +369,41 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
     terminal.current.open(terminalRef.current);
 
     terminal.current.attachCustomKeyEventHandler((event) => {
-      if ((event.ctrlKey || event.metaKey) && event.key === 'c' && terminal.current.hasSelection()) {
+      if (
+        event.type === 'keydown' &&
+        minimal &&
+        isPlainShellRef.current &&
+        authUrlRef.current &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        event.key?.toLowerCase() === 'c'
+      ) {
+        copyAuthUrlToClipboard(authUrlRef.current).catch(() => {});
+      }
+
+      if (
+        event.type === 'keydown' &&
+        (event.ctrlKey || event.metaKey) &&
+        event.key?.toLowerCase() === 'c' &&
+        terminal.current.hasSelection()
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
         document.execCommand('copy');
         return false;
       }
 
-      if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+      if (
+        event.type === 'keydown' &&
+        (event.ctrlKey || event.metaKey) &&
+        event.key?.toLowerCase() === 'v'
+      ) {
+        // Block native browser/xterm paste so clipboard data is only sent after
+        // the explicit clipboard-read flow resolves (avoids duplicate pastes).
+        event.preventDefault();
+        event.stopPropagation();
+
         navigator.clipboard.readText().then(text => {
           if (ws.current && ws.current.readyState === WebSocket.OPEN) {
             ws.current.send(JSON.stringify({
@@ -357,7 +473,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
         terminal.current = null;
       }
     };
-  }, [selectedProject?.path || selectedProject?.fullPath, isRestarting]);
+  }, [selectedProject?.path || selectedProject?.fullPath, isRestarting, minimal, copyAuthUrlToClipboard]);
 
   useEffect(() => {
     if (!autoConnect || !isInitialized || isConnecting || isConnected) return;
@@ -373,17 +489,55 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" />
             </svg>
           </div>
-          <h3 className="text-lg font-semibold mb-2">Select a Project</h3>
-          <p>Choose a project to open an interactive shell in that directory</p>
+          <h3 className="text-lg font-semibold mb-2">{t('shell.selectProject.title')}</h3>
+          <p>{t('shell.selectProject.description')}</p>
         </div>
       </div>
     );
   }
 
   if (minimal) {
+    const hasAuthUrl = Boolean(authUrl);
+
     return (
-      <div className="h-full w-full bg-gray-900">
+      <div className="h-full w-full bg-gray-900 relative">
         <div ref={terminalRef} className="h-full w-full focus:outline-none" style={{ outline: 'none' }} />
+        {hasAuthUrl && (
+          <div className="absolute inset-x-0 bottom-14 z-20 border-t border-gray-700/80 bg-gray-900/95 p-3 backdrop-blur-sm">
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-gray-300">Open or copy the login URL:</p>
+              <input
+                type="text"
+                value={authUrl}
+                readOnly
+                onClick={(event) => event.currentTarget.select()}
+                className="w-full rounded border border-gray-600 bg-gray-800 px-2 py-1 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                aria-label="Authentication URL"
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    openAuthUrlInBrowser(authUrl);
+                  }}
+                  className="flex-1 rounded bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700"
+                >
+                  Open URL
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const copied = await copyAuthUrlToClipboard(authUrl);
+                    setAuthUrlCopyStatus(copied ? 'copied' : 'failed');
+                  }}
+                  className="flex-1 rounded bg-gray-700 px-3 py-2 text-xs font-medium text-white hover:bg-gray-600"
+                >
+                  {authUrlCopyStatus === 'copied' ? 'Copied' : 'Copy URL'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -400,13 +554,13 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
               </span>
             )}
             {!selectedSession && (
-              <span className="text-xs text-gray-400">(New Session)</span>
+              <span className="text-xs text-gray-400">{t('shell.status.newSession')}</span>
             )}
             {!isInitialized && (
-              <span className="text-xs text-yellow-400">(Initializing...)</span>
+              <span className="text-xs text-yellow-400">{t('shell.status.initializing')}</span>
             )}
             {isRestarting && (
-              <span className="text-xs text-blue-400">(Restarting...)</span>
+              <span className="text-xs text-blue-400">{t('shell.status.restarting')}</span>
             )}
           </div>
           <div className="flex items-center space-x-3">
@@ -414,12 +568,12 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
               <button
                 onClick={disconnectFromShell}
                 className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 flex items-center space-x-1"
-                title="Disconnect from shell"
+                title={t('shell.actions.disconnectTitle')}
               >
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
-                <span>Disconnect</span>
+                <span>{t('shell.actions.disconnect')}</span>
               </button>
             )}
 
@@ -427,12 +581,12 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
               onClick={restartShell}
               disabled={isRestarting || isConnected}
               className="text-xs text-gray-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1"
-              title="Restart Shell (disconnect first)"
+              title={t('shell.actions.restartTitle')}
             >
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              <span>Restart</span>
+              <span>{t('shell.actions.restart')}</span>
             </button>
           </div>
         </div>
@@ -443,7 +597,7 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
 
         {!isInitialized && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-90">
-            <div className="text-white">Loading terminal...</div>
+            <div className="text-white">{t('shell.loading')}</div>
           </div>
         )}
 
@@ -453,19 +607,19 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
               <button
                 onClick={connectToShell}
                 className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center space-x-2 text-base font-medium w-full sm:w-auto"
-                title="Connect to shell"
+                title={t('shell.actions.connectTitle')}
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
-                <span>Continue in Shell</span>
+                <span>{t('shell.actions.connect')}</span>
               </button>
               <p className="text-gray-400 text-sm mt-3 px-2">
                 {isPlainShell ?
-                  `Run ${initialCommand || 'command'} in ${selectedProject.displayName}` :
+                  t('shell.runCommand', { command: initialCommand || t('shell.defaultCommand'), projectName: selectedProject.displayName }) :
                   selectedSession ?
-                    `Resume session: ${sessionDisplayNameLong}...` :
-                    'Start a new Claude session'
+                    t('shell.resumeSession', { displayName: sessionDisplayNameLong }) :
+                    t('shell.startSession')
                 }
               </p>
             </div>
@@ -477,12 +631,12 @@ function Shell({ selectedProject, selectedSession, initialCommand, isPlainShell 
             <div className="text-center max-w-sm w-full">
               <div className="flex items-center justify-center space-x-3 text-yellow-400">
                 <div className="w-6 h-6 animate-spin rounded-full border-2 border-yellow-400 border-t-transparent"></div>
-                <span className="text-base font-medium">Connecting to shell...</span>
+                <span className="text-base font-medium">{t('shell.connecting')}</span>
               </div>
               <p className="text-gray-400 text-sm mt-3 px-2">
                 {isPlainShell ?
-                  `Running ${initialCommand || 'command'} in ${selectedProject.displayName}` :
-                  `Starting Claude CLI in ${selectedProject.displayName}`
+                  t('shell.runCommand', { command: initialCommand || t('shell.defaultCommand'), projectName: selectedProject.displayName }) :
+                  t('shell.startCli', { projectName: selectedProject.displayName })
                 }
               </p>
             </div>
