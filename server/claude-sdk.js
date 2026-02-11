@@ -20,7 +20,6 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
 import { CLAUDE_MODELS } from '../shared/modelConstants.js';
-import crypto from 'crypto';
 import { getInteractionManager } from './services/interactionManager.js';
 import {
   InteractionType,

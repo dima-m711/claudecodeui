@@ -42,7 +42,7 @@ import { spawn } from 'child_process';
 import pty from 'node-pty';
 import fetch from 'node-fetch';
 import mime from 'mime-types';
-import { LRUCache } from 'lru-cache';
+import LRUCache from 'lru-cache';
 import { z } from 'zod';
 
 import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';

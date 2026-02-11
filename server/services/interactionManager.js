@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import crypto from 'crypto';
-import { LRUCache } from 'lru-cache';
+import LRUCache from 'lru-cache';
 
 const DEFAULT_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const MAX_INTERACTIONS_PER_SESSION = 100;
