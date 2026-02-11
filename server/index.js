@@ -42,7 +42,7 @@ import { spawn } from 'child_process';
 import pty from 'node-pty';
 import fetch from 'node-fetch';
 import mime from 'mime-types';
-import LRUCache from 'lru-cache';
+import { LRUCache } from 'lru-cache';
 import { z } from 'zod';
 
 import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
@@ -645,13 +645,13 @@ const expandWorkspacePath = (inputPath) => {
 app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
     try {
         const { path: dirPath } = req.query;
-        
+
         console.log('[API] Browse filesystem request for path:', dirPath);
         console.log('[API] WORKSPACES_ROOT is:', WORKSPACES_ROOT);
         // Default to home directory if no path provided
         const defaultRoot = WORKSPACES_ROOT;
         let targetPath = dirPath ? expandWorkspacePath(dirPath) : defaultRoot;
-        
+
         // Resolve and normalize the path
         targetPath = path.resolve(targetPath);
 
@@ -661,12 +661,12 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
             return res.status(403).json({ error: validation.error });
         }
         const resolvedPath = validation.resolvedPath || targetPath;
-        
+
         // Security check - ensure path is accessible
         try {
             await fs.promises.access(resolvedPath);
             const stats = await fs.promises.stat(resolvedPath);
-            
+
             if (!stats.isDirectory()) {
                 return res.status(400).json({ error: 'Path is not a directory' });
             }
@@ -676,7 +676,7 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
 
         // Use existing getFileTree function with shallow depth (only direct children)
         const fileTree = await getFileTree(resolvedPath, 1, 0, false); // maxDepth=1, showHidden=false
-        
+
         // Filter only directories and format for suggestions
         const directories = fileTree
             .filter(item => item.type === 'directory')
@@ -692,7 +692,7 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
                 if (!aHidden && bHidden) return -1;
                 return a.name.localeCompare(b.name);
             });
-            
+
         // Add common directories if browsing home directory
         const suggestions = [];
         let resolvedWorkspaceRoot = defaultRoot;

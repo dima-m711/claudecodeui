@@ -21,7 +21,8 @@
   },
   "app": {
     "title": "Claude Code UI",
-    "subtitle": "AI coding assistant interface"
+    "subtitle": "AI coding assistant interface",
+    "projects": "Projects"
   },
   "sessions": {
     "title": "Sessions",

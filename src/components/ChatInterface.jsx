@@ -32,6 +32,7 @@ import { useTasksSettings } from '../contexts/TasksSettingsContext';
 import InteractionRenderer from './InteractionRenderer';
 import { useInteraction, INTERACTION_TYPES } from '../contexts/InteractionContext';
 import useInteractions from '../hooks/useInteractions';
+import { useTranslation } from 'react-i18next';
 
 import ClaudeStatus from './ClaudeStatus';
 import TokenUsagePie from './TokenUsagePie';
@@ -243,6 +244,7 @@ const safeLocalStorage = {
 // Common markdown components to ensure consistent rendering (tables, inline code, links, etc.)
 const markdownComponents = {
   code: ({ node, inline, className, children, ...props }) => {
+    const { t } = useTranslation('chat');
     const [copied, setCopied] = React.useState(false);
     const raw = Array.isArray(children) ? children.join('') : String(children ?? '');
     const looksMultiline = /[\r\n]/.test(raw);
@@ -301,15 +303,15 @@ const markdownComponents = {
           type="button"
           onClick={handleCopy}
           className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 focus:opacity-100 active:opacity-100 transition-opacity text-xs px-2 py-1 rounded-md bg-gray-700/80 hover:bg-gray-700 text-white border border-gray-600"
-          title={copied ? 'Copied' : 'Copy code'}
-          aria-label={copied ? 'Copied' : 'Copy code'}
+          title={copied ? t('codeBlock.copied') : t('codeBlock.copyCode')}
+          aria-label={copied ? t('codeBlock.copied') : t('codeBlock.copyCode')}
         >
           {copied ? (
             <span className="flex items-center gap-1">
               <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
               </svg>
-              Copied
+              {t('codeBlock.copied')}
             </span>
           ) : (
             <span className="flex items-center gap-1">
@@ -317,7 +319,7 @@ const markdownComponents = {
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                 <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
               </svg>
-              Copy
+              {t('codeBlock.copy')}
             </span>
           )}
         </button>
@@ -361,6 +363,7 @@ const markdownComponents = {
 
 // Memoized message component to prevent unnecessary re-renders
 const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFileOpen, onShowSettings, autoExpandTools, showRawParameters, showThinking, selectedProject }) => {
+  const { t } = useTranslation('chat');
   const isGrouped = prevMessage && prevMessage.type === message.type &&
                    ((prevMessage.type === 'assistant') ||
                     (prevMessage.type === 'user') ||
@@ -456,7 +459,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                 </div>
               )}
               <div className="text-sm font-medium text-gray-900 dark:text-white">
-                {message.type === 'error' ? 'Error' : message.type === 'tool' ? 'Tool' : ((localStorage.getItem('selected-provider') || 'claude') === 'cursor' ? 'Cursor' : (localStorage.getItem('selected-provider') || 'claude') === 'codex' ? 'Codex' : 'Claude')}
+                {message.type === 'error' ? t('messageTypes.error') : message.type === 'tool' ? t('messageTypes.tool') : ((localStorage.getItem('selected-provider') || 'claude') === 'cursor' ? t('messageTypes.cursor') : (localStorage.getItem('selected-provider') || 'claude') === 'codex' ? t('messageTypes.codex') : t('messageTypes.claude'))}
               </div>
             </div>
           )}
@@ -484,8 +487,8 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                                 const input = JSON.parse(message.toolInput);
                                 return (
                                   <span className="font-mono truncate flex-1 min-w-0">
-                                    {input.pattern && <span>pattern: <span className="text-blue-600 dark:text-blue-400">{input.pattern}</span></span>}
-                                    {input.path && <span className="ml-2">in: {input.path}</span>}
+                                    {input.pattern && <span>{t('search.pattern')} <span className="text-blue-600 dark:text-blue-400">{input.pattern}</span></span>}
+                                    {input.path && <span className="ml-2">{t('search.in')} {input.path}</span>}
                                   </span>
                                 );
                               } catch (e) {
@@ -498,7 +501,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                               href={`#tool-result-${message.toolId}`}
                               className="flex-shrink-0 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium transition-colors flex items-center gap-1"
                             >
-                              <span>results</span>
+                              <span>{t('tools.searchResults')}</span>
                               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                               </svg>
@@ -542,7 +545,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                         onShowSettings();
                       }}
                       className="p-2 rounded-lg hover:bg-white/60 dark:hover:bg-gray-800/60 transition-all duration-200 group/btn backdrop-blur-sm"
-                      title="Tool Settings"
+                      title={t('tools.settings')}
                     >
                       <svg className="w-4 h-4 text-gray-600 dark:text-gray-400 group-hover/btn:text-blue-600 dark:group-hover/btn:text-blue-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -645,7 +648,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                                 {createDiff(input.old_string, input.new_string).map((diffLine, i) => (
                                   <div key={i} className="flex">
                                     <span className={`w-8 text-center border-r ${
-                                      diffLine.type === 'removed' 
+                                      diffLine.type === 'removed'
                                         ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800'
                                         : 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800'
                                     }`}>
@@ -797,7 +800,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                                   {createDiff('', input.content).map((diffLine, i) => (
                                     <div key={i} className="flex">
                                       <span className={`w-8 text-center border-r ${
-                                        diffLine.type === 'removed' 
+                                        diffLine.type === 'removed'
                                           ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800'
                                           : 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800'
                                       }`}>
@@ -835,7 +838,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                       // Fall back to regular display
                     }
                   }
-
+                  
                   // Special handling for TodoWrite tool
                   if (message.toolName === 'TodoWrite') {
                     try {
@@ -875,7 +878,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                       // Fall back to regular display
                     }
                   }
-
+                  
                   // Special handling for Bash tool
                   if (message.toolName === 'Bash') {
                     try {
@@ -897,14 +900,14 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                       // Fall back to regular display
                     }
                   }
-
+                  
                   // Special handling for Read tool
                   if (message.toolName === 'Read') {
                     try {
                       const input = JSON.parse(message.toolInput);
                       if (input.file_path) {
                         const filename = input.file_path.split('/').pop();
-
+                        
                         return (
                           <div className="mt-2 text-sm text-blue-700 dark:text-blue-300">
                             Read{' '}
@@ -921,7 +924,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                       // Fall back to regular display
                     }
                   }
-
+                  
                   // Special handling for exit_plan_mode tool
                   if (message.toolName === 'exit_plan_mode') {
                     try {
@@ -947,7 +950,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                       // Fall back to regular display
                     }
                   }
-
+                  
                   // Regular tool input display for other tools
                   return (
                     <details className="relative mt-3 group/params" open={autoExpandTools}>
@@ -963,7 +966,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                     </details>
                   );
                 })()}
-
+                
                 {/* Tool Result Section */}
                 {message.toolResult && (() => {
                   // Hide tool results for Edit/Write/Bash unless there's an error
@@ -1019,7 +1022,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                     }`}>
                       {(() => {
                         const content = String(message.toolResult.content || '');
-
+                        
                         // Special handling for TodoWrite/TodoRead results
                         if ((message.toolName === 'TodoWrite' || message.toolName === 'TodoRead') &&
                             (content.includes('Todos have been modified successfully') ||
@@ -1040,7 +1043,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                                 </div>
                               );
                             }
-
+                            
                             if (todos && Array.isArray(todos)) {
                               return (
                                 <div>
@@ -1113,11 +1116,11 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                           const promptIndex = lines.findIndex(line => line.includes('Do you want to proceed?'));
                           const beforePrompt = lines.slice(0, promptIndex).join('\n');
                           const promptLines = lines.slice(promptIndex);
-
+                          
                           // Extract the question and options
                           const questionLine = promptLines.find(line => line.includes('Do you want to proceed?')) || '';
                           const options = [];
-
+                          
                           // Parse numbered options (1. Yes, 2. No, etc.)
                           promptLines.forEach(line => {
                             const optionMatch = line.match(/^\s*(\d+)\.\s+(.+)$/);
@@ -1128,11 +1131,11 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                               });
                             }
                           });
-
+                          
                           // Find which option was selected (usually indicated by "> 1" or similar)
                           const selectedMatch = content.match(/>\s*(\d+)/);
                           const selectedOption = selectedMatch ? selectedMatch[1] : null;
-
+                          
                           return (
                             <div className="space-y-3">
                               {beforePrompt && (
@@ -1154,7 +1157,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                                     <p className="text-sm text-amber-800 dark:text-amber-200 mb-4">
                                       {questionLine}
                                     </p>
-
+                                    
                                     {/* Option buttons */}
                                     <div className="space-y-2 mb-4">
                                       {options.map((option) => (
@@ -1189,7 +1192,7 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                                         </button>
                                       ))}
                                     </div>
-
+                                    
                                     {selectedOption && (
                                       <div className="bg-amber-100 dark:bg-amber-800/30 rounded-lg p-3">
                                         <p className="text-amber-900 dark:text-amber-100 text-sm font-medium mb-1">
@@ -1673,6 +1676,7 @@ const ImageAttachment = ({ file, onRemove, uploadProgress, error }) => {
 // This ensures uninterrupted chat experience by pausing sidebar refreshes during conversations.
 function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, messages, setSessionId, onFileOpen, onInputFocusChange, onSessionActive, onSessionInactive, onSessionProcessing, onSessionNotProcessing, processingSessions, onReplaceTemporarySession, onNavigateToSession, onShowSettings, autoExpandTools, showRawParameters, showThinking, autoScrollToBottom, sendByCtrlEnter, externalMessageUpdate, onTaskClick, onShowAllTasks }) {
   const { tasksEnabled, isTaskMasterInstalled } = useTasksSettings();
+  const { t } = useTranslation('chat');
 
   const {
     pendingInteractions,
@@ -4544,8 +4548,8 @@ case 'codex-response':
                       setTimeout(() => textareaRef.current?.focus(), 100);
                     }}
                     className={`group relative w-64 h-32 bg-white dark:bg-gray-800 rounded-xl border-2 transition-all duration-200 hover:scale-105 hover:shadow-xl ${
-                      provider === 'claude' 
-                        ? 'border-blue-500 shadow-lg ring-2 ring-blue-500/20' 
+                      provider === 'claude'
+                        ? 'border-blue-500 shadow-lg ring-2 ring-blue-500/20'
                         : 'border-gray-200 dark:border-gray-700 hover:border-blue-400'
                     }`}
                   >
@@ -4576,8 +4580,8 @@ case 'codex-response':
                       setTimeout(() => textareaRef.current?.focus(), 100);
                     }}
                     className={`group relative w-64 h-32 bg-white dark:bg-gray-800 rounded-xl border-2 transition-all duration-200 hover:scale-105 hover:shadow-xl ${
-                      provider === 'cursor' 
-                        ? 'border-purple-500 shadow-lg ring-2 ring-purple-500/20' 
+                      provider === 'cursor'
+                        ? 'border-purple-500 shadow-lg ring-2 ring-purple-500/20'
                         : 'border-gray-200 dark:border-gray-700 hover:border-purple-400'
                     }`}
                   >
@@ -4844,7 +4848,7 @@ case 'codex-response':
               type="button"
               onClick={handleModeSwitch}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-all duration-200 ${
-                permissionMode === 'default' 
+                permissionMode === 'default'
                   ? 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600'
                   : permissionMode === 'acceptEdits'
                   ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-300 dark:border-green-600 hover:bg-green-100 dark:hover:bg-green-900/30'
@@ -4856,7 +4860,7 @@ case 'codex-response':
             >
               <div className="flex items-center gap-2">
                 <div className={`w-2 h-2 rounded-full ${
-                  permissionMode === 'default' 
+                  permissionMode === 'default'
                     ? 'bg-gray-500'
                     : permissionMode === 'acceptEdits'
                     ? 'bg-green-500'
