@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { api } from '../utils/api';
 import { useAuth } from './AuthContext';
-import { useWebSocket } from './WebSocketContext';
+import { useWebSocketContext } from './WebSocketContext';
 
 const TaskMasterContext = createContext({
   // TaskMaster project state
@@ -42,7 +42,8 @@ export const useTaskMaster = () => {
 
 export const TaskMasterProvider = ({ children }) => {
   // Get WebSocket messages from shared context to avoid duplicate connections
-  const { latestMessage } = useWebSocket();
+  const { messages } = useWebSocketContext();
+  const latestMessage = messages && messages.length > 0 ? messages[messages.length - 1] : null;
   
   // Authentication context
   const { user, token, isLoading: authLoading } = useAuth();
